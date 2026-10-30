@@ -1,0 +1,46 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH 3/3] DIRECTOR: Preserve TNG transit timing and sprite cleanup
+
+Limit the TNG Technical Manual score to a period-appropriate rate so its short
+wireframe clips receive display updates, and dirty a sprite when puppet mode is
+toggled so the score content underneath is restored immediately.
+---
+ engines/director/game-quirks.cpp          | 3 +++
+ engines/director/lingo/lingo-builtins.cpp | 8 +++++++-
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/game-quirks.cpp b/engines/director/game-quirks.cpp
+index ca677ca6..0cef0dcc 100644
+--- a/engines/director/game-quirks.cpp
++++ b/engines/director/game-quirks.cpp
+@@ -270,6 +270,9 @@ static void quirkMcLuhanWin() {
+ static void quirkTrekTechWin() {
+ 	Graphics::MacFontManager *fontMan = g_director->_wm->_fontMan;
+ 	fontMan->loadWindowsFont("TREKCON4.FON");
++	// The score was authored around 1x CD-ROM era timing. On a modern system
++	// its short start/end wireframe movies can finish between score updates.
++	g_director->_fpsLimit = 15;
+ }
+ 
+ static void quirkTrekGuideTNGWin() {
+diff --git a/engines/director/lingo/lingo-builtins.cpp b/engines/director/lingo/lingo-builtins.cpp
+index 9695c048..9e2713f0 100644
+--- a/engines/director/lingo/lingo-builtins.cpp
++++ b/engines/director/lingo/lingo-builtins.cpp
+@@ -3302,7 +3302,13 @@ void LB::b_puppetSprite(int nargs) {
+ 			int spriteId = sprite.asInt();
+ 			Sprite *target = sc->getSpriteById(spriteId);
+ 			bool val = (bool)state.asInt();
+-			target->_puppet = val;
++			if (target->_puppet != val) {
++				target->_puppet = val;
++				// Releasing a puppet sprite must redraw both its old area and the
++				// score sprite underneath it. Otherwise direct-to-stage video can
++				// leave its final frame behind until some unrelated redraw.
++				sc->getChannelById(spriteId)->setDirty();
++			}
+ 		} else {
+ 			warning("b_puppetSprite: sprite index out of bounds");
+ 		}
+-- 
+2.51.0
