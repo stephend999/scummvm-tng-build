@@ -2,30 +2,30 @@ From: TNG Technical Manual compatibility investigation
 Subject: [PATCH 2/2] DIRECTOR: Activate digital video assigned with setCast
 
 Channel::setCast() loads and starts a newly assigned digital-video cast member,
-but a paused-at-start member can leave the channel movie rate at zero. Director's
-playback/wait logic then treats it as inactive and advances immediately.
+but retains timing fields from the previous member. A shorter prior movie can
+therefore make the replacement appear to have ended immediately.
 
-Match the active rate established by the normal score-channel replacement path.
+Reset the rate, start time, stop time, and decoder position as the normal
+score-channel replacement path does.
 This restores corridor fly-through transit movies in Star Trek: The Next
 Generation Interactive Technical Manual.
 ---
- engines/director/channel.cpp | 5 +++++
- 1 file changed, 5 insertions(+)
+ engines/director/channel.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
 
 diff --git a/engines/director/channel.cpp b/engines/director/channel.cpp
-index b1032265..8788756c 100644
+index 8f53c3dc..d4597640 100644
 --- a/engines/director/channel.cpp
 +++ b/engines/director/channel.cpp
-@@ -496,6 +496,11 @@ void Channel::setCast(CastMemberID memberID) {
+@@ -489,6 +489,10 @@ void Channel::setCast(CastMemberID memberID) {
  			DigitalVideoCastMember *dv = (DigitalVideoCastMember *)_sprite->_cast;
  			if (dv->loadVideoFromCast()) {
  				_movieTime = 0;
-+				// A cast member assigned to a sprite from Lingo is expected to
-+				// begin playing.  In particular, paused-at-start QuickTime members
-+				// otherwise leave the channel rate at zero, causing "wait for video"
-+				// logic to consider the movie inactive and advance immediately.
 +				_movieRate = 1.0;
  				dv->setChannel(this);
++				_startTime = 0;
++				_stopTime = dv->getMovieTotalTime();
++				dv->rewindVideo();
  				dv->startVideo();
  			}
 -- 
