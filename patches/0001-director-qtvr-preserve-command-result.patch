@@ -1,0 +1,49 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH 1/2] DIRECTOR: Preserve QTVR mouseOver result for command calls
+
+Some Director titles invoke the QTVR mouseOver method as a command and then
+read `the result`. The builtin dispatcher drops a command's stack return value,
+so retain the value in `_theResult` before returning it.
+
+This fixes object hotspots in Star Trek: The Next Generation Interactive
+Technical Manual. Its scripts receive values such as `undf,165` from the XObject
+and inspect `the result` to select the close-up content.
+---
+ engines/director/lingo/xlibs/q/qtvr.cpp | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/engines/director/lingo/xlibs/q/qtvr.cpp b/engines/director/lingo/xlibs/q/qtvr.cpp
+index 42e45dfb..2ef01c84 100644
+--- a/engines/director/lingo/xlibs/q/qtvr.cpp
++++ b/engines/director/lingo/xlibs/q/qtvr.cpp
+@@ -249,20 +249,20 @@ void QTVR::m_mouseOver(int nargs) {
+ 				hotspot = me->_video->getClickedHotspotID();
+ 
+ 				if (!hotspot) {
+-					if (nodeChanged)
+-						g_lingo->push(Common::String::format("jump,%d", node));
+-					else
+-						g_lingo->push(Common::String("pan ,0"));
++					Datum result = nodeChanged ? Datum(Common::String::format("jump,%d", node)) : Datum(Common::String("pan ,0"));
++					g_lingo->_theResult = result;
++					g_lingo->push(result);
+ 
+ 					return;
+ 				}
+ 
+ 				const Common::QuickTimeParser::PanoHotSpot *hotspotData = me->_video->getHotSpotByID(hotspot);
+ 
+-				if (nodeChanged || (hotspotData && hotspotData->type == MKTAG('l','i','n','k')))
+-					g_lingo->push(Common::String::format("jump,%d", node));
+-				else
+-					g_lingo->push(Common::String::format("%s,%d", hotspotData ? tag2str((uint32)hotspotData->type) : "undf", hotspot));
++				Datum result = (nodeChanged || (hotspotData && hotspotData->type == MKTAG('l','i','n','k')))
++					? Datum(Common::String::format("jump,%d", node))
++					: Datum(Common::String::format("%s,%d", hotspotData ? tag2str((uint32)hotspotData->type) : "undf", hotspot));
++				g_lingo->_theResult = result;
++				g_lingo->push(result);
+ 
+ 				return;
+ 			}
+-- 
+2.51.0
