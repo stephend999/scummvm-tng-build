@@ -1,0 +1,87 @@
+name: Build patched ScummVM for Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    env:
+      CONFIGURATION: Release
+      PLATFORM: x64
+      VCPKG_FEATURE_FLAGS: dependencygraph
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}/source/vcpkg_installed
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg_cache,readwrite
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/source/.github/vcpkg-ports
+      GIT_VCPKG_COMMIT: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+    steps:
+      - name: Checkout build recipe
+        uses: actions/checkout@v4
+        with:
+          path: buildrepo
+
+      - name: Checkout ScummVM
+        uses: actions/checkout@v4
+        with:
+          repository: scummvm/scummvm
+          ref: d187209bb0560cbdc8d6adea60cfa3c754a35544
+          path: source
+
+      - name: Apply TNG compatibility patches
+        shell: pwsh
+        run: |
+          git -C source apply ../buildrepo/patches/0001-director-qtvr-preserve-command-result.patch
+          git -C source apply ../buildrepo/patches/0002-director-start-lingo-assigned-digital-video.patch
+          git -C source diff --check
+
+      - name: Install vcpkg
+        uses: lukka/run-vcpkg@v11
+        id: runvcpkg
+        with:
+          vcpkgGitCommitId: ${{ env.GIT_VCPKG_COMMIT }}
+
+      - name: Integrate vcpkg
+        run: ${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}/vcpkg integrate install
+
+      - name: Build project generator
+        run: |
+          cd source/devtools/create_project/cmake
+          cmake .
+          cmake --build . -j 2
+
+      - name: Generate Director-only project
+        run: |
+          mkdir source/build-scummvm
+          cd source/build-scummvm
+          ../devtools/create_project/cmake/Debug/create_project.exe .. --msvc --vcpkg --disable-all-engines --enable-engine=director
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Install libraries
+        working-directory: source
+        run: vcpkg install
+
+      - name: Build ScummVM
+        run: |
+          cd source/build-scummvm
+          msbuild scummvm.sln /m /p:VcpkgEnableManifest=true /p:BuildInParallel=true /p:Configuration=${{ env.CONFIGURATION }} /p:PreferredToolArchitecture=x64 /p:Platform=${{ env.PLATFORM }} /v:minimal
+
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item source/build-scummvm/Releasex64/scummvm.exe package/
+          Copy-Item source/vcpkg_installed/x64-windows/bin/*.dll package/ -ErrorAction SilentlyContinue
+          Copy-Item source/gui/themes/*.zip package/
+          Copy-Item source/dists/engine-data/*.dat package/ -ErrorAction SilentlyContinue
+
+      - name: Upload patched ScummVM
+        uses: actions/upload-artifact@v4
+        with:
+          name: scummvm-tng-patched-windows-x64
+          path: package
+          if-no-files-found: error
