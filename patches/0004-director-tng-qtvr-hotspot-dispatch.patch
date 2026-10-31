@@ -1,0 +1,37 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH 4/4] DIRECTOR: Dispatch TNG QTVR object hotspots
+
+The Windows TNG Technical Manual calls QTVR mouseOver as a Director 4 command.
+After the XObject's nested rollover callback identifies an object hotspot, call
+the title's original hotHitPlay handler directly so it loads the CD playlist.
+---
+ engines/director/lingo/xlibs/q/qtvr.cpp | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/lingo/xlibs/q/qtvr.cpp b/engines/director/lingo/xlibs/q/qtvr.cpp
+index f1c639ea..490c80c7 100644
+--- a/engines/director/lingo/xlibs/q/qtvr.cpp
++++ b/engines/director/lingo/xlibs/q/qtvr.cpp
+@@ -261,8 +261,19 @@ void QTVR::m_mouseOver(int nargs) {
+ 
+ 				if (nodeChanged || (hotspotData && hotspotData->type == MKTAG('l','i','n','k')))
+ 					g_lingo->push(Common::String::format("jump,%d", node));
+-				else
++				else {
++					// The TNG Technical Manual's Director 4 bytecode invokes mouseOver
++					// as a command, then dispatches the selected object through this
++					// movie handler. Run that original handler directly after QTVR has
++					// reported the hotspot; this avoids losing the command result across
++					// the nested rollover callback.
++					if (Common::String(g_director->getGameId()).equals("trektech")) {
++						int cframe = g_lingo->_state->callstack.size();
++						LC::call("hotHitPlay", 0, false);
++						g_lingo->execute(cframe);
++					}
+ 					g_lingo->push(Common::String::format("%s,%d", hotspotData ? tag2str((uint32)hotspotData->type) : "undf", hotspot));
++				}
+ 
+ 				return;
+ 			}
+-- 
+2.51.0
