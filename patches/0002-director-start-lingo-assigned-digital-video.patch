@@ -1,23 +1,23 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH 2/2] DIRECTOR: Activate digital video assigned with setCast
+Subject: [PATCH 2/4] DIRECTOR: Restart digital video assigned with setCast
 
-Channel::setCast() loads and starts a newly assigned digital-video cast member,
-but retains timing fields from the previous member. A shorter prior movie can
-therefore make the replacement appear to have ended immediately.
-
-Reset the rate, start time, stop time, and decoder position as the normal
-score-channel replacement path does.
-This restores corridor fly-through transit movies in Star Trek: The Next
-Generation Interactive Technical Manual.
+Reset timing and restart a digital video whenever Lingo assigns it to a sprite,
+including reassignment of the same cast number after its filename changed.
 ---
- engines/director/channel.cpp | 4 ++++
- 1 file changed, 4 insertions(+)
+ engines/director/channel.cpp | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
 
 diff --git a/engines/director/channel.cpp b/engines/director/channel.cpp
-index 8f53c3dc..d4597640 100644
+index 8f53c3dc..be425476 100644
 --- a/engines/director/channel.cpp
 +++ b/engines/director/channel.cpp
-@@ -489,6 +489,10 @@ void Channel::setCast(CastMemberID memberID) {
+@@ -484,16 +484,20 @@ void Channel::setCast(CastMemberID memberID) {
+ 
+ 	// Duplicate of the special cases in setClean.
+ 	// Maybe it makes sense to force setClean to use setCast instead?
+-	if (hasChanged && _sprite->_cast) {
++	if (_sprite->_cast) {
+ 		if (_sprite->_cast->_type == kCastDigitalVideo) {
  			DigitalVideoCastMember *dv = (DigitalVideoCastMember *)_sprite->_cast;
  			if (dv->loadVideoFromCast()) {
  				_movieTime = 0;
@@ -28,5 +28,12 @@ index 8f53c3dc..d4597640 100644
 +				dv->rewindVideo();
  				dv->startVideo();
  			}
+-		} else if (_sprite->_cast->_type == kCastFilmLoop ||
+-					_sprite->_cast->_type == kCastMovie) {
++		} else if (hasChanged && (_sprite->_cast->_type == kCastFilmLoop ||
++					_sprite->_cast->_type == kCastMovie)) {
+ 			// brand new film loop, reset the frame counter.
+ 			_filmLoopFrame = 1;
+ 		}
 -- 
 2.51.0
