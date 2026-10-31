@@ -1,0 +1,58 @@
+diff --git a/engines/testbed/video.cpp b/engines/testbed/video.cpp
+index 225ca6aa..c07fcc6f 100644
+--- a/engines/testbed/video.cpp
++++ b/engines/testbed/video.cpp
+@@ -20,8 +20,10 @@
+  */
+ 
+ #include "common/events.h"
++#include "common/config-manager.h"
+ #include "common/file.h"
+ #include "common/fs.h"
++#include "common/system.h"
+ #include "engines/util.h"
+ #include "video/asf_decoder.h"
+ #include "video/avi_decoder.h"
+@@ -71,6 +73,7 @@ Common::Error Videotests::videoTest(const Common::FSNode &node) {
+ Common::Error Videotests::videoTest(Common::SeekableReadStream *stream, const Common::String &name) {
+ 	Video::QuickTimeDecoder *qtVideo = nullptr;
+ 	Video::VideoDecoder *video = nullptr;
++	warning("TNG video diagnostic: opening %s (%lld bytes)", name.c_str(), (long long)stream->size());
+ 
+ 	// ASF movies may use game-specific extensions such as .dat.
+ 	static const byte asfHeader[] = {
+@@ -109,6 +112,34 @@ Common::Error Videotests::videoTest(Common::SeekableReadStream *stream, const Co
+ 		delete video;
+ 		return Common::kReadingFailed;
+ 	}
++	warning("TNG video diagnostic: loaded %s, duration=%u ms, size=%ux%u", name.c_str(), video->getDuration().msecs(), video->getWidth(), video->getHeight());
++
++	// The normal Testbed path renders every frame and asks the user to confirm
++	// the picture.  This non-interactive path exists so old QuickTime lifecycle
++	// behaviour can be tested under SDL's dummy video driver without a window.
++	if (ConfMan.getBool("tng_headless_video_test")) {
++		const uint32 expectedDuration = video->getDuration().msecs();
++		const uint32 startedAt = g_system->getMillis();
++		uint32 decodedFrames = 0;
++		uint32 lastMovieTime = 0;
++
++		video->start();
++		while (!video->endOfVideo() && g_system->getMillis() - startedAt < expectedDuration + 5000) {
++			if (video->needsUpdate()) {
++				video->decodeNextFrame();
++				decodedFrames++;
++				lastMovieTime = video->getTime();
++			}
++			g_system->delayMillis(1);
++		}
++
++		const uint32 elapsed = g_system->getMillis() - startedAt;
++		const bool reachedEnd = video->endOfVideo();
++		warning("TNG_VIDEO_RESULT name=%s expected_ms=%u elapsed_ms=%u movie_ms=%u frames=%u ended=%d",
++				name.c_str(), expectedDuration, elapsed, lastMovieTime, decodedFrames, reachedEnd);
++		delete video;
++		return reachedEnd && decodedFrames > 1 ? Common::kNoError : Common::kUnknownError;
++	}
+ 
+ 	if (qtVideo)
+ 		qtVideo->setTargetSize(400, 300);
