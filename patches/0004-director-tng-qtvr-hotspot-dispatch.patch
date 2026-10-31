@@ -1,5 +1,5 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH 4/5] DIRECTOR: Dispatch TNG QTVR object hotspots
+Subject: [PATCH 4/4] DIRECTOR: Dispatch TNG QTVR object hotspots
 
 The Windows TNG Technical Manual calls QTVR mouseOver as a Director 4 command.
 After the XObject identifies an object hotspot, call the title's original
