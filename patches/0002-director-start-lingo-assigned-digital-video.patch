@@ -1,5 +1,5 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH 2/4] DIRECTOR: Restart digital video assigned with setCast
+Subject: [PATCH 2/5] DIRECTOR: Restart digital video assigned with setCast
 
 Reset timing and restart a digital video whenever Lingo assigns it to a sprite,
 including reassignment of the same cast number after its filename changed.
