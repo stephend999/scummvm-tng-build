@@ -1,5 +1,5 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH 1/5] DIRECTOR: Preserve legacy XObject command result
+Subject: [PATCH 1/4] DIRECTOR: Preserve legacy XObject command result
 
 Some Director 4 XObjects return a value from a command-style call and scripts
 read it immediately through `the result`. Preserve the QTVR mouseOver value in
