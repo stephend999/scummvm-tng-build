@@ -1,5 +1,5 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH 3/3] DIRECTOR: Preserve TNG transit timing and sprite cleanup
+Subject: [PATCH 3/5] DIRECTOR: Preserve TNG transit timing and sprite cleanup
 
 Limit the TNG Technical Manual score to a period-appropriate rate so its short
 wireframe clips receive display updates, and dirty a sprite when puppet mode is
