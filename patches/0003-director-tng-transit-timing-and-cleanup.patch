@@ -1,16 +1,18 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH 3/5] DIRECTOR: Preserve TNG transit timing and sprite cleanup
+Subject: [PATCH 3/4] DIRECTOR: Preserve TNG transit timing and sprite cleanup
 
 Limit the TNG Technical Manual score to a period-appropriate rate so its short
-wireframe clips receive display updates, and dirty a sprite when puppet mode is
-toggled so the score content underneath is restored immediately.
+wireframe clips receive display updates, apply that configured limit to normal
+score frames as well as explicit tempo frames, and dirty a sprite when puppet
+mode is toggled so the score content underneath is restored immediately.
 ---
  engines/director/game-quirks.cpp          | 4 ++++
  engines/director/lingo/lingo-builtins.cpp | 8 +++++++-
- 2 files changed, 11 insertions(+), 1 deletion(-)
+ engines/director/score.cpp                | 5 ++++-
+ 3 files changed, 15 insertions(+), 2 deletions(-)
 
 diff --git a/engines/director/game-quirks.cpp b/engines/director/game-quirks.cpp
-index ca677ca6..0cef0dcc 100644
+index ca677ca6..0d0a4dda 100644
 --- a/engines/director/game-quirks.cpp
 +++ b/engines/director/game-quirks.cpp
 @@ -270,6 +270,10 @@ static void quirkMcLuhanWin() {
@@ -43,5 +45,21 @@ index 9695c048..9e2713f0 100644
  		} else {
  			warning("b_puppetSprite: sprite index out of bounds");
  		}
+diff --git a/engines/director/score.cpp b/engines/director/score.cpp
+index a7641db0..10335dab 100644
+--- a/engines/director/score.cpp
++++ b/engines/director/score.cpp
+@@ -622,7 +622,10 @@ void Score::updateNextFrameTime() {
+ 			}
+ 		}
+ 	} else {
+-		_nextFrameTime = g_system->getMillis() + 1000.0 / (float)_currentFrameRate;
++		uint16 frameRate = _currentFrameRate;
++		if (_vm->_fpsLimit)
++			frameRate = MIN(_vm->_fpsLimit, frameRate);
++		_nextFrameTime = g_system->getMillis() + 1000.0 / (float)frameRate;
+ 	}
+ 	_lastTempo = tempo;
+ 
 -- 
 2.51.0
