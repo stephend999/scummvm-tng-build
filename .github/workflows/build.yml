@@ -53,11 +53,11 @@ jobs:
           cmake .
           cmake --build . -j 2
 
-      - name: Generate Director-only project
+      - name: Generate Director and video-test project
         run: |
           mkdir source/build-scummvm
           cd source/build-scummvm
-          ../devtools/create_project/cmake/Debug/create_project.exe .. --msvc --vcpkg --disable-all-engines --enable-engine=director
+          ../devtools/create_project/cmake/Debug/create_project.exe .. --msvc --vcpkg --disable-all-engines --enable-engine=director,testbed
 
       - uses: microsoft/setup-msbuild@v2
 
