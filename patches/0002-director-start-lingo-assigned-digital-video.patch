@@ -1,16 +1,44 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH 2/4] DIRECTOR: Restart digital video assigned with setCast
+Subject: [PATCH 2/4] DIRECTOR: Hand off and restart video assigned with setCast
 
-Reset timing and restart a digital video whenever Lingo assigns it to a sprite,
-including reassignment of the same cast number after its filename changed.
+Detach an outgoing digital video before Lingo assigns another cast member to
+the puppet sprite. Reset timing and restart the incoming video, including a
+reassignment of the same cast number after its filename changed.
 ---
- engines/director/channel.cpp | 10 +++++++---
- 1 file changed, 7 insertions(+), 3 deletions(-)
+ engines/director/channel.cpp | 26 ++++++++++++++++++++++----
+ 1 file changed, 22 insertions(+), 4 deletions(-)
 
 diff --git a/engines/director/channel.cpp b/engines/director/channel.cpp
-index 8f53c3dc..be425476 100644
+index 8f53c3dc..59fcd394 100644
 --- a/engines/director/channel.cpp
 +++ b/engines/director/channel.cpp
+@@ -468,12 +468,24 @@ bool Channel::isVideoDirectToStage() {
+ }
+ 
+ void Channel::setCast(CastMemberID memberID) {
++	bool hasChanged = _sprite->_castId != memberID;
++
++	// A digital video cast member keeps a pointer to the channel which owns its
++	// playback state.  Puppet-sprite cast changes come through setCast() rather
++	// than replaceSprite(), so detach the outgoing video here as well.  Leaving
++	// it attached lets its end-of-video update set this channel's movieRate to
++	// zero after the replacement video has started.
++	if (hasChanged && _sprite->_cast && _sprite->_cast->_type == kCastDigitalVideo) {
++		DigitalVideoCastMember *video = (DigitalVideoCastMember *)_sprite->_cast;
++		video->stopVideo();
++		video->seekMovie(0);
++		video->setChannel(nullptr);
++	}
++
+ 	// release previous widget
+ 	if (_sprite->_cast)
+ 		_sprite->_cast->releaseWidget();
+ 
+-	bool hasChanged = _sprite->_castId != memberID;
+-
+ 	// Replace the cast member in the sprite.
+ 	// Only change the dimensions if the "stretch" flag is set,
+ 	// indicating that the sprite has already been warped away from cast
 @@ -484,16 +484,20 @@ void Channel::setCast(CastMemberID memberID) {
  
  	// Duplicate of the special cases in setClean.
