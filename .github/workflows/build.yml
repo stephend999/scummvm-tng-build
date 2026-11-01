@@ -38,6 +38,7 @@ jobs:
           git -C source apply ../buildrepo/patches/0002-director-start-lingo-assigned-digital-video.patch
           git -C source apply ../buildrepo/patches/0003-testbed-headless-video-diagnostic.patch
           git -C source apply ../buildrepo/patches/0004-testbed-skip-headless-screen-updates.patch
+          git -C source apply ../buildrepo/patches/0005-testbed-direct-movie-diagnostic.patch
           git -C source diff --check
 
       - name: Install vcpkg
