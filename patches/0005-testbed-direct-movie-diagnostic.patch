@@ -9,7 +9,7 @@ index 0a4855a1..2d10ecac 100644
 +	// A command-line movie diagnostic does not need the interactive backend
 +	// suites. Some of those suites inspect audio and MIDI resources in their
 +	// constructors, before run() can dispatch directly to the video decoder.
-+	if (ConfMan.hasKey("start_movie"))
++	if (ConfMan.hasKey("start_movie", Common::ConfigManager::kApplicationDomain))
 +		return;
 +
  	pushTestsuites(_testsuiteList);
