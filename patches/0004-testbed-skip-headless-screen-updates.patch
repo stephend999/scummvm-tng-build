@@ -1,0 +1,17 @@
+diff --git a/backends/graphics/surfacesdl/surfacesdl-graphics.cpp b/backends/graphics/surfacesdl/surfacesdl-graphics.cpp
+index ad7bc1a8..3c3a5e66 100644
+--- a/backends/graphics/surfacesdl/surfacesdl-graphics.cpp
++++ b/backends/graphics/surfacesdl/surfacesdl-graphics.cpp
+@@ -1204,6 +1204,12 @@ void SurfaceSdlGraphicsManager::updateScreen(SDL_Rect *dirtyRectList, int actual
+ }
+ 
+ void SurfaceSdlGraphicsManager::internUpdateScreen() {
++	// The Testbed QuickTime lifecycle diagnostic deliberately runs without a
++	// visible display. SDL's dummy/offscreen drivers do not provide a usable
++	// blit target on Windows, but decoding the movie does not require one.
++	if (ConfMan.getBool("tng_headless_video_test"))
++		return;
++
+ 	SDL_Surface *srcSurf, *origSurf;
+ 	int height, width;
+ 	int scale1;
