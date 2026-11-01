@@ -1,0 +1,17 @@
+diff --git a/engines/testbed/testbed.cpp b/engines/testbed/testbed.cpp
+index 0a4855a1..2d10ecac 100644
+--- a/engines/testbed/testbed.cpp
++++ b/engines/testbed/testbed.cpp
+@@ -140,6 +140,12 @@ TestbedEngine::TestbedEngine(OSystem *syst)
+ 	}
+ 	DebugMan.enableDebugChannel("LOG");
+ 
++	// A command-line movie diagnostic does not need the interactive backend
++	// suites. Some of those suites inspect audio and MIDI resources in their
++	// constructors, before run() can dispatch directly to the video decoder.
++	if (ConfMan.hasKey("start_movie"))
++		return;
++
+ 	pushTestsuites(_testsuiteList);
+ }
+ 
