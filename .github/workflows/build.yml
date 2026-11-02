@@ -34,12 +34,23 @@ jobs:
       - name: Apply TNG compatibility patches
         shell: pwsh
         run: |
-          git -C source apply ../buildrepo/patches/0001-director-qtvr-preserve-command-result.patch
-          git -C source apply ../buildrepo/patches/0002-director-start-lingo-assigned-digital-video.patch
-          git -C source apply ../buildrepo/patches/0003-testbed-headless-video-diagnostic.patch
-          git -C source apply ../buildrepo/patches/0004-testbed-skip-headless-screen-updates.patch
-          git -C source apply ../buildrepo/patches/0005-testbed-direct-movie-diagnostic.patch
+          function Apply-RepositoryPatch([string] $PatchPath) {
+            git -C buildrepo show "HEAD:$PatchPath" | git -C source apply -
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to apply $PatchPath"
+            }
+          }
+
+          Apply-RepositoryPatch 'patches/0001-director-qtvr-preserve-command-result.patch'
+          Apply-RepositoryPatch 'patches/0002-director-start-lingo-assigned-digital-video.patch'
+          Apply-RepositoryPatch 'patches/0003-testbed-headless-video-diagnostic.patch'
+          Apply-RepositoryPatch 'patches/0004-testbed-skip-headless-screen-updates.patch'
+          Apply-RepositoryPatch 'patches/0005-testbed-direct-movie-diagnostic.patch'
           git -C source diff --check
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Patched source failed git diff --check'
+          }
+          git -C source diff --stat
 
       - name: Install vcpkg
         uses: lukka/run-vcpkg@v11
