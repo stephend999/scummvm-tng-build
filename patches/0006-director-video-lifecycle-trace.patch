@@ -1,0 +1,60 @@
+diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/castmember/digitalvideo.cpp
+index 23fd2fd1..aeb5a8e1 100644
+--- a/engines/director/castmember/digitalvideo.cpp
++++ b/engines/director/castmember/digitalvideo.cpp
+@@ -20,6 +20,7 @@
+  */
+ 
+ #include "audio/decoders/aiff.h"
++#include "common/config-manager.h"
+ #include "common/platform.h"
+ #include "common/stream.h"
+ #include "common/macresman.h"
+@@ -471,9 +472,18 @@ bool DigitalVideoCastMember::endOfVideo() {
+ 	// A stopTime of 0 means it was never initialised (e.g. the video was
+ 	// started via Lingo's movieRate rather than via startVideo()), so only
+ 	// honour the decoder's own end-of-stream in that case.
+-	return (_video->endOfVideo() ||
+-			(_channel->_stopTime > 0 &&
+-			 getMovieCurrentTimeMillis() >= (uint)(_channel->_stopTime*1000/getTimeScale())));
++	const bool decoderEnded = _video->endOfVideo();
++	const uint scale = getTimeScale();
++	const uint currentMillis = _video->getTime();
++	const uint currentForStop = getMovieCurrentTimeMillis();
++	const uint stopMillis = _channel->_stopTime > 0 ? (uint)(_channel->_stopTime * 1000 / scale) : 0;
++	const bool stopTimeEnded = stopMillis > 0 && currentForStop >= stopMillis;
++	if ((decoderEnded || stopTimeEnded) && ConfMan.getBool("tng_video_lifecycle_trace")) {
++		warning("TNG_VIDEO_END file=%s decoderEnded=%d stopTimeEnded=%d rawMs=%u comparedMs=%u stopMs=%u startTicks=%u stopTicks=%u scale=%u rate=%g playing=%d",
++				_filename.c_str(), decoderEnded, stopTimeEnded, currentMillis, currentForStop, stopMillis,
++				_channel->_startTime, _channel->_stopTime, scale, _channel->_movieRate, _video->isPlaying());
++	}
++	return decoderEnded || stopTimeEnded;
+ }
+ 
+ Graphics::MacWidget *DigitalVideoCastMember::createWidget(Common::Rect &bbox, Channel *channel, SpriteType spriteType) {
+@@ -654,7 +664,12 @@ void DigitalVideoCastMember::setMovieTime(int units) {
+ 	// movieTime and duration are always in scaling units (1/digitalVideoTimeScale)
+ 
+ 	Audio::Timestamp dur = _video->getDuration();
+-	_video->seek(Audio::Timestamp(units * 1000 / getTimeScale(), dur.framerate()));
++	const bool seeked = _video->seek(Audio::Timestamp(units * 1000 / getTimeScale(), dur.framerate()));
++	if (ConfMan.getBool("tng_video_lifecycle_trace")) {
++		warning("TNG_VIDEO_SEEK file=%s units=%d scale=%u seeked=%d nowMs=%u rate=%g playing=%d ended=%d",
++				_filename.c_str(), units, getTimeScale(), seeked, _video->getTime(),
++				_channel->_movieRate, _video->isPlaying(), _video->endOfVideo());
++	}
+ 
+ 	if (_channel->_movieRate == 0.0) {
+ 		_getFirstFrame = true;
+@@ -694,6 +709,11 @@ void DigitalVideoCastMember::setMovieRate(double rate) {
+ 	}
+ 
+ 	_channel->_movieRate = rate;
++	if (ConfMan.getBool("tng_video_lifecycle_trace")) {
++		warning("TNG_VIDEO_RATE file=%s requested=%g nowMs=%u startTicks=%u stopTicks=%u scale=%u playing=%d decoderEnded=%d",
++				_filename.c_str(), rate, _video->getTime(), _channel->_startTime,
++				_channel->_stopTime, getTimeScale(), _video->isPlaying(), _video->endOfVideo());
++	}
+ 
+ 	if (endOfVideo())
+ 		rewindVideo();
