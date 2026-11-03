@@ -1,0 +1,12 @@
+diff --git a/engines/director/lingo/xlibs/q/qtvr.cpp b/engines/director/lingo/xlibs/q/qtvr.cpp
+--- a/engines/director/lingo/xlibs/q/qtvr.cpp
++++ b/engines/director/lingo/xlibs/q/qtvr.cpp
+@@ -72,7 +72,7 @@ const XlibFileDesc QTVR::fileNames[] = {
+ 
+ static const MethodProto xlibMethods[] = {
+ 	{ "new",					QTVR::m_new,					1, 1,	400 },	// D4
+-	{ "dispose",				QTVR::m_dispose,				1, 1,	400 },	// D4
++	{ "dispose",				QTVR::m_dispose,				0, 0,	400 },	// D4
+ 	{ "getHPanAngle",			QTVR::m_getHPanAngle,			0, 0,	400 },	// D4
+ 	{ "getMovieRect",			QTVR::m_getMovieRect,			0, 0,	400 },	// D4
+ 	{ "getNodeID",				QTVR::m_getNodeID,				0, 0,	400 },	// D4
