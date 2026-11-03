@@ -1,0 +1,59 @@
+diff --git a/engines/director/lingo/xlibs/q/qtvr.cpp b/engines/director/lingo/xlibs/q/qtvr.cpp
+index f5e2c1cb..3cc2bb89 100644
+--- a/engines/director/lingo/xlibs/q/qtvr.cpp
++++ b/engines/director/lingo/xlibs/q/qtvr.cpp
+@@ -332,10 +332,15 @@ void QTVR::m_openMovie(int nargs) {
+ 		return;
+ 	}
+ 
++	// A single QTVR XObject can be reused for several locations. Dispose the
++	// previous widget and decoder before replacing them, otherwise the old widget
++	// remains registered with the window manager and can be drawn over the page.
++	me->close();
+ 	me->_video = new Video::QuickTimeDecoder();
+ 	debugC(5, kDebugXObj, "QtvrxtraXtra::m_QTVROpen(): Loading QT file ('%s')", path.toString().c_str());
+ 	if (!me->_video->loadFile(path)) {
+ 		Common::String error = Common::String::format("Error: Failed to load movie file ('%s')!", path.toString().c_str());
++		me->close();
+ 		g_lingo->push(error);
+ 		return;
+ 	}
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+index 1fb728f3..d19c30d7 100644
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -183,18 +183,23 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
+ 	Common::Rect r = rect;
+ 	r.clip(blitTo->getBounds());
+ 	size_t idx = 0;
+-	// move direct-to-stage layers to the end of the list
+-	while (idx < dirtyChannels.size()) {
+-		Channel *ch = dirtyChannels[idx];
+-		if (ch->isActiveVideo() && ch->isVideoDirectToStage()) {
+-			appendix.push_back(ch);
+-			dirtyChannels.remove_at(idx);
+-			continue;
++	// Direct-to-stage video normally bypasses Director's compositing and appears
++	// above the score. Trek Tech, however, deliberately puts its enlarge/reduce
++	// controls in higher-numbered sprite channels than the detail video. Preserve
++	// score order for that title so those controls remain visible and clickable.
++	if (strcmp(g_director->getGameId(), "trektech") != 0) {
++		while (idx < dirtyChannels.size()) {
++			Channel *ch = dirtyChannels[idx];
++			if (ch->isActiveVideo() && ch->isVideoDirectToStage()) {
++				appendix.push_back(ch);
++				dirtyChannels.remove_at(idx);
++				continue;
++			}
++			idx++;
++		}
++		for (auto &it : appendix) {
++			dirtyChannels.push_back(it);
+ 		}
+-		idx++;
+-	}
+-	for (auto &it : appendix) {
+-		dirtyChannels.push_back(it);
+ 	}
+ 
+ 	size_t startIdx = 0;
