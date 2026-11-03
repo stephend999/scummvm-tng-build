@@ -43,7 +43,9 @@ jobs:
 
           Apply-RepositoryPatch 'patches/0001-director-qtvr-preserve-command-result.patch'
           Apply-RepositoryPatch 'patches/0002-director-start-lingo-assigned-digital-video.patch'
+          Apply-RepositoryPatch 'patches/0003-director-tng-transit-timing-and-cleanup.patch'
           Apply-RepositoryPatch 'patches/0003-testbed-headless-video-diagnostic.patch'
+          Apply-RepositoryPatch 'patches/0004-director-tng-qtvr-hotspot-dispatch.patch'
           Apply-RepositoryPatch 'patches/0004-testbed-skip-headless-screen-updates.patch'
           Apply-RepositoryPatch 'patches/0005-testbed-direct-movie-diagnostic.patch'
           Apply-RepositoryPatch 'patches/0006-director-video-lifecycle-trace.patch'
