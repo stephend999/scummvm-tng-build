@@ -55,8 +55,8 @@ index a7641db0..10335dab 100644
  	} else {
 -		_nextFrameTime = g_system->getMillis() + 1000.0 / (float)_currentFrameRate;
 +		uint16 frameRate = _currentFrameRate;
-+		if (_vm->_fpsLimit)
-+			frameRate = MIN(_vm->_fpsLimit, frameRate);
++		if (_vm->_fpsLimit && _vm->_fpsLimit < frameRate)
++			frameRate = (uint16)_vm->_fpsLimit;
 +		_nextFrameTime = g_system->getMillis() + 1000.0 / (float)frameRate;
  	}
  	_lastTempo = tempo;
