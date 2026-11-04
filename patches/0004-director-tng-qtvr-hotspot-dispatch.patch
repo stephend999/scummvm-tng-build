@@ -2,18 +2,18 @@ From: TNG Technical Manual compatibility investigation
 Subject: [PATCH 4/4] DIRECTOR: Dispatch TNG QTVR object hotspots
 
 The Windows TNG Technical Manual calls QTVR mouseOver as a Director 4 command.
-After the XObject identifies an object hotspot, call the title's original
-hotHitReport handler to populate its hotspot state and then hotHitPlay to load
-the corresponding CD playlist.
+After the rollover callback identifies an object hotspot, call the title's
+original hotHitPlay handler to load the corresponding CD playlist. Do not
+report the same hotspot twice because the title treats that as a deselection.
 ---
- engines/director/lingo/xlibs/q/qtvr.cpp | 19 ++++++++++++++++++-
- 1 file changed, 18 insertions(+), 1 deletion(-)
+ engines/director/lingo/xlibs/q/qtvr.cpp | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
 
 diff --git a/engines/director/lingo/xlibs/q/qtvr.cpp b/engines/director/lingo/xlibs/q/qtvr.cpp
 index 42e45dfb..e039ca7a 100644
 --- a/engines/director/lingo/xlibs/q/qtvr.cpp
 +++ b/engines/director/lingo/xlibs/q/qtvr.cpp
-@@ -261,8 +261,25 @@ void QTVR::m_mouseOver(int nargs) {
+@@ -261,8 +261,20 @@ void QTVR::m_mouseOver(int nargs) {
  
  				if (nodeChanged || (hotspotData && hotspotData->type == MKTAG('l','i','n','k')))
  					g_lingo->push(Common::String::format("jump,%d", node));
@@ -21,17 +21,12 @@ index 42e45dfb..e039ca7a 100644
 +				else {
 +					// The TNG Technical Manual's Director 4 bytecode invokes mouseOver
 +					// as a command, then dispatches the selected object through its movie
-+					// handlers. Report the hotspot first so the title can populate
-+					// prevIndex/validSpotFlag, then run the original playback handler.
-+					// This avoids losing the command result across the nested rollover
-+					// callback.
++					// handlers. The rollover callback has already populated
++					// prevIndex/validSpotFlag. Run only the playback handler here: a
++					// second hotHitReport for the same hotspot toggles validSpotFlag off,
++					// making an ordinary stationary click fail while a drag appears to work.
 +					if (Common::String(g_director->getGameId()).equals("trektech")) {
 +						int cframe = g_lingo->_state->callstack.size();
-+						g_lingo->push(Datum(hotspot));
-+						LC::call("hotHitReport", 1, false);
-+						g_lingo->execute(cframe);
-+
-+						cframe = g_lingo->_state->callstack.size();
 +						LC::call("hotHitPlay", 0, false);
 +						g_lingo->execute(cframe);
 +					}
