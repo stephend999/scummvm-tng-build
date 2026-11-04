@@ -1,0 +1,39 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: Avoid duplicate Trek Tech hotspot dispatch
+
+The command-result compatibility patch preserves QTVR mouseOver's return value
+until the title reads `the result`. Trek Tech's original mPanMaster handler then
+calls hotHitPlay for an undefined object hotspot. Do not also call hotHitPlay
+inside the XObject: doing both can queue an exit transit twice and leave the
+second arrival without a live panorama object.
+---
+ engines/director/lingo/xlibs/q/qtvr.cpp | 14 +-------------
+ 1 file changed, 1 insertion(+), 13 deletions(-)
+
+diff --git a/engines/director/lingo/xlibs/q/qtvr.cpp b/engines/director/lingo/xlibs/q/qtvr.cpp
+--- a/engines/director/lingo/xlibs/q/qtvr.cpp
++++ b/engines/director/lingo/xlibs/q/qtvr.cpp
+@@ -261,20 +261,8 @@ void QTVR::m_mouseOver(int nargs) {
+ 
+ 				if (nodeChanged || (hotspotData && hotspotData->type == MKTAG('l','i','n','k')))
+ 					g_lingo->push(Common::String::format("jump,%d", node));
+-				else {
+-					// The TNG Technical Manual's Director 4 bytecode invokes mouseOver
+-					// as a command, then dispatches the selected object through its movie
+-					// handlers. The rollover callback has already populated
+-					// prevIndex/validSpotFlag. Run only the playback handler here: a
+-					// second hotHitReport for the same hotspot toggles validSpotFlag off,
+-					// making an ordinary stationary click fail while a drag appears to work.
+-					if (Common::String(g_director->getGameId()).equals("trektech")) {
+-						int cframe = g_lingo->_state->callstack.size();
+-						LC::call("hotHitPlay", 0, false);
+-						g_lingo->execute(cframe);
+-					}
++				else
+ 					g_lingo->push(Common::String::format("%s,%d", hotspotData ? tag2str((uint32)hotspotData->type) : "undf", hotspot));
+-				}
+ 
+ 				return;
+ 			}
+-- 
+2.51.0
