@@ -53,6 +53,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0008-director-trektech-video-layering-cleanup.patch'
           Apply-RepositoryPatch 'patches/0009-director-trektech-leading-text-marker.patch'
           Apply-RepositoryPatch 'patches/0010-director-trektech-single-hotspot-dispatch.patch'
+          Apply-RepositoryPatch 'patches/0011-director-qtvr-object-redraw.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'

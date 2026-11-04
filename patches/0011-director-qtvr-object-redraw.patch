@@ -1,0 +1,90 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] VIDEO/DIRECTOR: Restore QTVR object frames and clear blank handoff
+
+QTVR object movies choose non-sequential views while the user rotates an
+object. Decode inter-frame codecs from their preceding keyframe instead of
+changing only the sample index, which leaves RPZA reference data from another
+view. Also avoid compositing Trek Tech's BlankQT handoff movie: its 400-pixel
+black rectangle otherwise remains over the left edge of the adjacent menu when
+the detail movie is replaced by a QTVR object.
+---
+ engines/director/window.cpp | 11 ++++++++++-
+ video/qt_decoder.cpp        | 22 ++++++++++++++++++++++
+ video/qt_decoder.h          |  2 +-
+ 3 files changed, 33 insertions(+), 2 deletions(-)
+
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -38,6 +38,7 @@
+ #include "director/sound.h"
+ #include "director/sprite.h"
+ #include "director/castmember/castmember.h"
++#include "director/castmember/digitalvideo.h"
+ #include "director/debugger/debugtools.h"
+ #include "graphics/managed_surface.h"
+ 
+@@ -249,8 +250,16 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
+ 
+ 	for (size_t i = startIdx; i < dirtyChannels.size(); i++) {
+ 		Channel *ch = dirtyChannels[i];
++		bool skipTrekBlankVideo = false;
++		if (isTrekTech && ch == trekDetailVideo && ch->isActiveVideo()) {
++			DigitalVideoCastMember *video = (DigitalVideoCastMember *)ch->_sprite->_cast;
++			skipTrekBlankVideo = video->_filename.hasSuffixIgnoreCase("BlankQT.mov");
++		}
+ 
+-		if (ch->_visible && !ch->_hideFromStage) {
++		// BlankQT is a handoff sentinel used while Trek Tech replaces the shared
++		// detail movie with a QTVR object. Compositing its 400-pixel black frame
++		// leaves the right edge over the adjacent menu after the real video stops.
++		if (ch->_visible && !ch->_hideFromStage && !skipTrekBlankVideo) {
+ 			if (ch->hasSubChannels()) {
+ 				Common::Array<Channel> *list = ch->getSubChannels();
+ 				for (auto &k : *list) {
+diff --git a/video/qt_decoder.cpp b/video/qt_decoder.cpp
+--- a/video/qt_decoder.cpp
++++ b/video/qt_decoder.cpp
+@@ -472,6 +472,28 @@ bool QuickTimeDecoder::VideoTrackHandler::seek(const Audio::Timestamp &requested
+ 	return true;
+ }
+ 
++void QuickTimeDecoder::VideoTrackHandler::setCurFrame(int32 curFrame) {
++	if (_decoder->_qtvrType != QTVRType::OBJECT) {
++		_curFrame = curFrame;
++		return;
++	}
++
++	if (curFrame < 0 || curFrame >= (int32)_parent->frameCount || curFrame == _curFrame)
++		return;
++
++	// QTVR object movies select frames non-sequentially as the object rotates.
++	// Inter-frame codecs such as RPZA still require every dependency from the
++	// preceding keyframe. Jumping the frame index directly leaves the codec's
++	// reference image from an unrelated view and produces partial-frame debris.
++	// Rebuild the decoder state up to, but not including, the requested frame;
++	// decodeNextFrame() will then decode and display the target itself.
++	_curFrame = findKeyFrame(curFrame);
++	while (_curFrame < curFrame) {
++		bufferNextFrame();
++		_curFrame++;
++	}
++}
++
+ Audio::Timestamp QuickTimeDecoder::VideoTrackHandler::getDuration() const {
+ 	return Audio::Timestamp(0, _parent->duration, _decoder->_timeScale);
+ }
+diff --git a/video/qt_decoder.h b/video/qt_decoder.h
+--- a/video/qt_decoder.h
++++ b/video/qt_decoder.h
+@@ -341,7 +341,7 @@ private:
+ 		Graphics::PixelFormat getPixelFormat() const override;
+ 		bool setOutputPixelFormat(const Graphics::PixelFormat &format) override;
+ 		int getCurFrame() const override { return _curFrame; }
+-		void setCurFrame(int32 curFrame) { _curFrame = curFrame; }
++		void setCurFrame(int32 curFrame);
+ 		int getFrameCount() const override;
+ 		uint32 getNextFrameStartTime() const override; // milliseconds
+ 		const Graphics::Surface *decodeNextFrame() override;
+-- 
+2.51.0
