@@ -1,0 +1,28 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: Hide Trek Tech leading article marker
+
+Some Trek Tech article files begin with a legacy 0xA5 formatting marker.
+The Windows Trek font renders that marker as a stray percent sign. Strip it
+at read time only when it is the first byte, preserving original disc data.
+---
+ engines/director/lingo/xlibs/f/fileio.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/engines/director/lingo/xlibs/f/fileio.cpp b/engines/director/lingo/xlibs/f/fileio.cpp
+index 76a2cccf..c7bbb7cf 100644
+--- a/engines/director/lingo/xlibs/f/fileio.cpp
++++ b/engines/director/lingo/xlibs/f/fileio.cpp
+@@ -555,6 +555,13 @@ void FileIO::m_readFile(int nargs) {
+ 		ch = me->_inStream->readByte();
+ 	}
+ 
++	// Several Trek Tech article files begin with a legacy 0xA5 formatting
++	// marker. The bundled Windows font renders it as a stray percent sign.
++	// Strip only a leading marker for this title, leaving the original disc
++	// data untouched and preserving any byte used within actual text.
++	if (Common::String(g_director->getGameId()).equals("trektech") && !res.empty() && (byte)res[0] == 0xA5)
++		res.deleteChar(0);
++
+ 	g_lingo->push(res);
+ }
+ 
