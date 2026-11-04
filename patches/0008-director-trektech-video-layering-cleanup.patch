@@ -22,7 +22,7 @@ diff --git a/engines/director/window.cpp b/engines/director/window.cpp
 index 1fb728f3..d19c30d7 100644
 --- a/engines/director/window.cpp
 +++ b/engines/director/window.cpp
-@@ -183,18 +183,23 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
+@@ -183,18 +183,49 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
  	Common::Rect r = rect;
  	r.clip(blitTo->getBounds());
  	size_t idx = 0;
@@ -50,6 +50,32 @@ index 1fb728f3..d19c30d7 100644
 +		for (auto &it : appendix) {
 +			dirtyChannels.push_back(it);
  		}
++	} else {
++		// Trek Tech's detail view uses sprite 23 for the QuickTime item and
++		// sprite 22 for the enlarged still. The original projector hides the
++		// paused movie behind that still; keeping ordinary score order would
++		// leave the small movie in front. Move only this paused detail movie
++		// immediately below its still. A one-pixel placeholder in sprite 22
++		// leaves the normal small view unchanged, while an enlarged bitmap
++		// cleanly covers it.
++		Channel *detailImage = score->getChannelById(22);
++		Channel *detailVideo = score->getChannelById(23);
++		if (detailImage && detailVideo && detailVideo->_movieRate == 0.0 &&
++				detailVideo->isActiveVideo() && detailVideo->isVideoDirectToStage()) {
++			size_t imageIdx = dirtyChannels.size();
++			size_t videoIdx = dirtyChannels.size();
++			for (size_t i = 0; i < dirtyChannels.size(); i++) {
++				if (dirtyChannels[i] == detailImage)
++					imageIdx = i;
++				else if (dirtyChannels[i] == detailVideo)
++					videoIdx = i;
++			}
++			if (imageIdx < dirtyChannels.size() && videoIdx < dirtyChannels.size() &&
++					videoIdx > imageIdx) {
++				dirtyChannels.remove_at(videoIdx);
++				dirtyChannels.insert_at(imageIdx, detailVideo);
++			}
++		}
 -		idx++;
 -	}
 -	for (auto &it : appendix) {
