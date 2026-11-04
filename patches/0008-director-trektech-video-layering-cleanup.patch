@@ -19,71 +19,63 @@ index f5e2c1cb..3cc2bb89 100644
  		return;
  	}
 diff --git a/engines/director/window.cpp b/engines/director/window.cpp
-index 1fb728f3..d19c30d7 100644
+index 1fb728f3..6e2edfb9 100644
 --- a/engines/director/window.cpp
 +++ b/engines/director/window.cpp
-@@ -183,18 +183,53 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
+@@ -182,19 +182,53 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
+ 	Common::Array<Channel *> appendix;
  	Common::Rect r = rect;
  	r.clip(blitTo->getBounds());
++	bool isTrekTech = strcmp(g_director->getGameId(), "trektech") == 0;
++	Channel *trekDetailVideo = isTrekTech ? score->getChannelById(23) : nullptr;
  	size_t idx = 0;
 -	// move direct-to-stage layers to the end of the list
--	while (idx < dirtyChannels.size()) {
--		Channel *ch = dirtyChannels[idx];
--		if (ch->isActiveVideo() && ch->isVideoDirectToStage()) {
--			appendix.push_back(ch);
--			dirtyChannels.remove_at(idx);
--			continue;
 +	// Direct-to-stage video normally bypasses Director's compositing and appears
-+	// above the score. Trek Tech, however, deliberately puts its enlarge/reduce
-+	// controls in higher-numbered sprite channels than the detail video. Preserve
-+	// score order for that title so those controls remain visible and clickable.
-+	if (strcmp(g_director->getGameId(), "trektech") != 0) {
-+		while (idx < dirtyChannels.size()) {
-+			Channel *ch = dirtyChannels[idx];
-+			if (ch->isActiveVideo() && ch->isVideoDirectToStage()) {
-+				appendix.push_back(ch);
-+				dirtyChannels.remove_at(idx);
-+				continue;
-+			}
-+			idx++;
-+		}
-+		for (auto &it : appendix) {
-+			dirtyChannels.push_back(it);
++	// above the score. Trek Tech deliberately puts its enlarge/reduce controls
++	// above its shared detail/transit video on sprite 23, so keep only that video
++	// in score order. Other videos, including the wireframe animation, retain
++	// normal direct-to-stage ordering.
+ 	while (idx < dirtyChannels.size()) {
+ 		Channel *ch = dirtyChannels[idx];
+-		if (ch->isActiveVideo() && ch->isVideoDirectToStage()) {
++		if (ch->isActiveVideo() && ch->isVideoDirectToStage() && ch != trekDetailVideo) {
+ 			appendix.push_back(ch);
+ 			dirtyChannels.remove_at(idx);
+ 			continue;
  		}
-+	} else {
+ 		idx++;
+ 	}
+-	for (auto &it : appendix) {
++	for (auto &it : appendix)
+ 		dirtyChannels.push_back(it);
++
++	if (isTrekTech) {
 +		// Trek Tech's detail view uses sprite 23 for the QuickTime item and
 +		// sprite 22 for the enlarged still. The original projector hides the
 +		// paused movie behind that still; keeping ordinary score order would
-+		// leave the small movie in front. Move only this paused detail movie
-+		// immediately below its still while the Reduce control proves that the
-+		// enlarged view is active. Transit reuses the same video sprite and also
-+		// pauses briefly on its first frame, so the button check prevents transit
-+		// from being mistaken for an enlargement.
++		// leave the small movie in front. Use the title's explicit enlarged-image
++		// state rather than a particular button cast, because special views such
++		// as the tricorder do not always expose the same Reduce button metadata.
++		// Transit reuses sprite 23 but never sets this state.
 +		Channel *detailImage = score->getChannelById(22);
-+		Channel *detailVideo = score->getChannelById(23);
-+		Channel *detailButton = score->getChannelById(26);
-+		CastMemberInfo *buttonInfo = detailButton && detailButton->_sprite->_cast ? detailButton->_sprite->_cast->getInfo() : nullptr;
-+		bool enlargedView = buttonInfo && buttonInfo->name.equalsIgnoreCase("BltReduce");
-+		if (enlargedView && detailImage && detailVideo && detailVideo->_movieRate == 0.0 &&
-+				detailVideo->isActiveVideo() && detailVideo->isVideoDirectToStage()) {
++		bool enlargedView = g_lingo->_globalvars.contains("gImageCastNow") &&
++				g_lingo->_globalvars.getVal("gImageCastNow").asString().equalsIgnoreCase("enLargedImg");
++		if (enlargedView && detailImage && trekDetailVideo && trekDetailVideo->_movieRate == 0.0 &&
++				trekDetailVideo->isActiveVideo() && trekDetailVideo->isVideoDirectToStage()) {
 +			size_t imageIdx = dirtyChannels.size();
 +			size_t videoIdx = dirtyChannels.size();
 +			for (size_t i = 0; i < dirtyChannels.size(); i++) {
 +				if (dirtyChannels[i] == detailImage)
 +					imageIdx = i;
-+				else if (dirtyChannels[i] == detailVideo)
++				else if (dirtyChannels[i] == trekDetailVideo)
 +					videoIdx = i;
 +			}
 +			if (imageIdx < dirtyChannels.size() && videoIdx < dirtyChannels.size() &&
 +					videoIdx > imageIdx) {
 +				dirtyChannels.remove_at(videoIdx);
-+				dirtyChannels.insert_at(imageIdx, detailVideo);
++				dirtyChannels.insert_at(imageIdx, trekDetailVideo);
 +			}
 +		}
--		idx++;
--	}
--	for (auto &it : appendix) {
--		dirtyChannels.push_back(it);
  	}
  
  	size_t startIdx = 0;
