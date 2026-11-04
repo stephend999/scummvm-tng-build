@@ -22,7 +22,7 @@ diff --git a/engines/director/window.cpp b/engines/director/window.cpp
 index 1fb728f3..d19c30d7 100644
 --- a/engines/director/window.cpp
 +++ b/engines/director/window.cpp
-@@ -183,18 +183,49 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
+@@ -183,18 +183,53 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
  	Common::Rect r = rect;
  	r.clip(blitTo->getBounds());
  	size_t idx = 0;
@@ -55,12 +55,16 @@ index 1fb728f3..d19c30d7 100644
 +		// sprite 22 for the enlarged still. The original projector hides the
 +		// paused movie behind that still; keeping ordinary score order would
 +		// leave the small movie in front. Move only this paused detail movie
-+		// immediately below its still. A one-pixel placeholder in sprite 22
-+		// leaves the normal small view unchanged, while an enlarged bitmap
-+		// cleanly covers it.
++		// immediately below its still while the Reduce control proves that the
++		// enlarged view is active. Transit reuses the same video sprite and also
++		// pauses briefly on its first frame, so the button check prevents transit
++		// from being mistaken for an enlargement.
 +		Channel *detailImage = score->getChannelById(22);
 +		Channel *detailVideo = score->getChannelById(23);
-+		if (detailImage && detailVideo && detailVideo->_movieRate == 0.0 &&
++		Channel *detailButton = score->getChannelById(26);
++		CastMemberInfo *buttonInfo = detailButton && detailButton->_sprite->_cast ? detailButton->_sprite->_cast->getInfo() : nullptr;
++		bool enlargedView = buttonInfo && buttonInfo->name.equalsIgnoreCase("BltReduce");
++		if (enlargedView && detailImage && detailVideo && detailVideo->_movieRate == 0.0 &&
 +				detailVideo->isActiveVideo() && detailVideo->isVideoDirectToStage()) {
 +			size_t imageIdx = dirtyChannels.size();
 +			size_t videoIdx = dirtyChannels.size();
