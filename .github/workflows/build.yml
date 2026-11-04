@@ -55,6 +55,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0010-director-trektech-single-hotspot-dispatch.patch'
           Apply-RepositoryPatch 'patches/0011-director-qtvr-object-redraw.patch'
           Apply-RepositoryPatch 'patches/0012-director-direct-to-stage-puppet-cleanup.patch'
+          Apply-RepositoryPatch 'patches/0013-director-trektech-menu-and-drag-input.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'

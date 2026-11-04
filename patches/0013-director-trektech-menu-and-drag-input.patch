@@ -1,0 +1,54 @@
+diff --git a/engines/director/channel.h b/engines/director/channel.h
+--- a/engines/director/channel.h
++++ b/engines/director/channel.h
+@@ -49,7 +49,7 @@ public:
+ 	inline int getHeight() { return _sprite->_height; };
+ 	inline Common::Point getPosition() { return _sprite->getPosition(); };
+ 	// Return the area of screen to be used for drawing content.
+-	inline Common::Rect getBbox(bool unstretched = false) { return _sprite->getBbox(unstretched); };
++	Common::Rect getBbox(bool unstretched = false);
+ 	Common::Rect getRollOverBbox();
+ 
+ 	bool isStretched();
+diff --git a/engines/director/channel.cpp b/engines/director/channel.cpp
+--- a/engines/director/channel.cpp
++++ b/engines/director/channel.cpp
+@@ -189,6 +189,21 @@ Graphics::ManagedSurface *Channel::getSurface() {
+ 	}
+ }
+ 
++Common::Rect Channel::getBbox(bool unstretched) {
++	Common::Rect bbox = _sprite->getBbox(unstretched);
++
++	// Trek Tech's right-hand topic captions (cast 151) carry the Windows
++	// projector's 15-pixel text inset in their registration data. Director's
++	// generic text widget does not currently preserve that inset, which places
++	// the first letters on the black gutter to the left of the orange buttons.
++	if (Common::String(g_director->getGameId()).equals("trektech") &&
++			_sprite->_castId.member == 151 && bbox.left == 416 &&
++			bbox.top >= 50 && bbox.top < 150)
++		bbox.translate(15, 0);
++
++	return bbox;
++}
++
+ const Graphics::Surface *Channel::getMask(bool forceMatte) {
+ 	if (!_sprite->_cast || _sprite->_spriteType == kTextSprite)
+ 		return nullptr;
+diff --git a/video/qtvr_decoder.cpp b/video/qtvr_decoder.cpp
+--- a/video/qtvr_decoder.cpp
++++ b/video/qtvr_decoder.cpp
+@@ -1601,6 +1601,13 @@ void QuickTimeDecoder::handlePanoMouseButton(bool isDown, int16 x, int16 y, bool
+ 		_clickedHotspotID = _rolloverHotspotID;
+ 	}
+ 
++	// A panorama drag is navigation, not a hotspot click. The clicked hotspot is
++	// captured on mouse-down, so clear it when the pointer has crossed the same
++	// threshold used to begin panning before the button is released.
++	if (!repeat && !isDown &&
++			(ABS(_prevMouse.x - _mouseDrag.x) >= 5 || ABS(_prevMouse.y - _mouseDrag.y) >= 5))
++		setClickedHotSpot(0);
++
+ 	if (!repeat && !isDown && _rolloverHotspot && _prevMouse == _mouseDrag) {
+ 		if (_rolloverHotspot->type == MKTAG('l','i','n','k')) {
+ 			PanoLink *link = _panoTrack->panoSamples[_currentSample].linkTable.get(_rolloverHotspot->typeData);
