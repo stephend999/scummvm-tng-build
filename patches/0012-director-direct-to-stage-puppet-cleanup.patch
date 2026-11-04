@@ -1,0 +1,21 @@
+diff --git a/engines/director/lingo/lingo-builtins.cpp b/engines/director/lingo/lingo-builtins.cpp
+--- a/engines/director/lingo/lingo-builtins.cpp
++++ b/engines/director/lingo/lingo-builtins.cpp
+@@ -3307,11 +3307,16 @@ void LB::b_puppetSprite(int nargs) {
+ 			Sprite *target = sc->getSpriteById(spriteId);
+ 			bool val = (bool)state.asInt();
+ 			if (target->_puppet != val) {
++				Channel *channel = sc->getChannelById(spriteId);
++				bool releasingDirectToStageVideo = !val && channel->isVideoDirectToStage();
+ 				target->_puppet = val;
+ 				// Releasing a puppet sprite must redraw both its old area and the
+ 				// score sprite underneath it. Otherwise direct-to-stage video can
+ 				// leave its final frame behind until some unrelated redraw.
+-				sc->getChannelById(spriteId)->setDirty();
++				channel->setDirty();
++				channel->setNeedsDraw();
++				if (releasingDirectToStageVideo)
++					g_director->getCurrentWindow()->reset();
+ 			}
+ 		} else {
+ 			warning("b_puppetSprite: sprite index out of bounds");
