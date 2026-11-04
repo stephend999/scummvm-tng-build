@@ -1,0 +1,80 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: keep stopped Trek Tech blank video off stage
+
+Trek Tech leaves BlankQT.mov on its shared detail-video channel after the
+handoff to a QTVR object. The existing guard only skipped the sentinel while
+Director considered it an active video, so its stopped 400-pixel black frame
+was composited over the first 32 pixels of the adjacent topic menu. Identify
+the sentinel by its cast member and filename in every playback state.
+
+Also remove the earlier cast-151 caption offset workaround. The visible menu
+labels are part of a complete bitmap; they were being covered by BlankQT, not
+positioned incorrectly.
+---
+ engines/director/channel.cpp | 15 ---------------
+ engines/director/channel.h   |  2 +-
+ engines/director/window.cpp  |  8 +++++---
+ 3 files changed, 6 insertions(+), 19 deletions(-)
+
+diff --git a/engines/director/channel.h b/engines/director/channel.h
+--- a/engines/director/channel.h
++++ b/engines/director/channel.h
+@@ -49,7 +49,7 @@ public:
+ 	inline int getHeight() { return _sprite->_height; };
+ 	inline Common::Point getPosition() { return _sprite->getPosition(); };
+ 	// Return the area of screen to be used for drawing content.
+-	Common::Rect getBbox(bool unstretched = false);
++	inline Common::Rect getBbox(bool unstretched = false) { return _sprite->getBbox(unstretched); };
+ 	Common::Rect getRollOverBbox();
+ 
+ 	bool isStretched();
+diff --git a/engines/director/channel.cpp b/engines/director/channel.cpp
+--- a/engines/director/channel.cpp
++++ b/engines/director/channel.cpp
+@@ -189,21 +189,6 @@ Graphics::ManagedSurface *Channel::getSurface() {
+ 	}
+ }
+ 
+-Common::Rect Channel::getBbox(bool unstretched) {
+-	Common::Rect bbox = _sprite->getBbox(unstretched);
+-
+-	// Trek Tech's right-hand topic captions (cast 151) carry the Windows
+-	// projector's 15-pixel text inset in their registration data. Director's
+-	// generic text widget does not currently preserve that inset, which places
+-	// the first letters on the black gutter to the left of the orange buttons.
+-	if (Common::String(g_director->getGameId()).equals("trektech") &&
+-			_sprite->_castId.member == 151 && bbox.left == 416 &&
+-			bbox.top >= 50 && bbox.top < 150)
+-		bbox.translate(15, 0);
+-
+-	return bbox;
+-}
+-
+ const Graphics::Surface *Channel::getMask(bool forceMatte) {
+ 	if (!_sprite->_cast || _sprite->_spriteType == kTextSprite)
+ 		return nullptr;
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -252,14 +252,16 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
+ 	for (size_t i = startIdx; i < dirtyChannels.size(); i++) {
+ 		Channel *ch = dirtyChannels[i];
+ 		bool skipTrekBlankVideo = false;
+-		if (isTrekTech && ch == trekDetailVideo && ch->isActiveVideo()) {
++		if (isTrekTech && ch == trekDetailVideo && ch->_sprite && ch->_sprite->_cast &&
++				ch->_sprite->_cast->_type == kCastDigitalVideo) {
+ 			DigitalVideoCastMember *video = (DigitalVideoCastMember *)ch->_sprite->_cast;
+ 			skipTrekBlankVideo = video->_filename.hasSuffixIgnoreCase("BlankQT.mov");
+ 		}
+ 
+ 		// BlankQT is a handoff sentinel used while Trek Tech replaces the shared
+-		// detail movie with a QTVR object. Compositing its 400-pixel black frame
+-		// leaves the right edge over the adjacent menu after the real video stops.
++		// detail movie with a QTVR object. It remains on the score after playback
++		// stops, so suppress it in every state; otherwise its 400-pixel black frame
++		// covers the left edge of the adjacent menu.
+ 		if (ch->_visible && !ch->_hideFromStage && !skipTrekBlankVideo) {
+ 			if (ch->hasSubChannels()) {
+ 				Common::Array<Channel> *list = ch->getSubChannels();
+-- 
+2.51.0
