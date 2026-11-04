@@ -22,7 +22,7 @@ diff --git a/engines/director/window.cpp b/engines/director/window.cpp
 index 1fb728f3..6e2edfb9 100644
 --- a/engines/director/window.cpp
 +++ b/engines/director/window.cpp
-@@ -182,19 +182,53 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
+@@ -182,19 +182,56 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
  	Common::Array<Channel *> appendix;
  	Common::Rect r = rect;
  	r.clip(blitTo->getBounds());
@@ -53,13 +53,16 @@ index 1fb728f3..6e2edfb9 100644
 +		// Trek Tech's detail view uses sprite 23 for the QuickTime item and
 +		// sprite 22 for the enlarged still. The original projector hides the
 +		// paused movie behind that still; keeping ordinary score order would
-+		// leave the small movie in front. Use the title's explicit enlarged-image
-+		// state rather than a particular button cast, because special views such
-+		// as the tricorder do not always expose the same Reduce button metadata.
-+		// Transit reuses sprite 23 but never sets this state.
++		// leave the small movie in front. Detect the title's reserved enlarged-image
++		// cast slot rather than a button or a later global-state assignment: the cast
++		// changes before updateStage, including in special views such as the tricorder.
++		// Transit reuses sprite 23 but never displays this reserved cast member.
 +		Channel *detailImage = score->getChannelById(22);
-+		bool enlargedView = g_lingo->_globalvars.contains("gImageCastNow") &&
-+				g_lingo->_globalvars.getVal("gImageCastNow").asString().equalsIgnoreCase("enLargedImg");
++		bool enlargedView = false;
++		if (detailImage && g_lingo->_globalvars.contains("gEnLgIndx") && g_lingo->_globalvars.contains("gFmtIndx")) {
++			int enlargedCast = g_lingo->_globalvars.getVal("gEnLgIndx").asInt() + g_lingo->_globalvars.getVal("gFmtIndx").asInt();
++			enlargedView = detailImage->_sprite->_castId.member == enlargedCast;
++		}
 +		if (enlargedView && detailImage && trekDetailVideo && trekDetailVideo->_movieRate == 0.0 &&
 +				trekDetailVideo->isActiveVideo() && trekDetailVideo->isVideoDirectToStage()) {
 +			size_t imageIdx = dirtyChannels.size();
