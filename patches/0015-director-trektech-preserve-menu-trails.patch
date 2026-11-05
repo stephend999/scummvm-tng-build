@@ -1,0 +1,42 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: preserve Trek Tech menu trails on detail entry
+
+Trek Tech constructs its orange topic menu with a single trails-enabled
+sprite, stamping each row permanently onto the stage.  Its PathZone text
+sprite is initially authored over that area and later moved to the breadcrumb
+below the menu.  ScummVM clears the sprite's complete old bounding box during
+that move, erasing the stamped rows; no live sprite remains to redraw them.
+
+The menu has already painted over the old PathZone before the relocation.
+Suppress that obsolete cleanup only for Trek Tech's known PathZone move,
+leaving every other sprite and game on the normal redraw path.
+---
+ engines/director/window.cpp | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -327,7 +327,19 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 
+ 		debugC(7, kDebugImages, "Window::render(): drawing channel %d", (int)i);
+ 
+-		if (!chan->_lastTrail) {
++		// Trek Tech builds the orange topic menu by moving one trails-enabled
++		// sprite down the right side and stamping each row onto the stage.  Its
++		// PathZone text sprite is authored over that same area, then moved to the
++		// breadcrumb below the menu once the detail view is ready.  Clearing the
++		// PathZone's old bounding box at that point erases the already-stamped
++		// menu rows; there are no live sprites from which to redraw those pixels.
++		// The menu has already painted over the old PathZone, so retain that
++		// rectangle only for this one authored-to-breadcrumb relocation.
++		bool preserveTrekPathZoneTrails = strcmp(g_director->getGameId(), "trektech") == 0 &&
++				i == 19 && chan->_sprite && chan->_sprite->_castId.member == 151 &&
++				chan->_lastRenderedBbox.top < 150 && bbox.top > 200;
++
++		if (!chan->_lastTrail && !preserveTrekPathZoneTrails) {
+ 			renderChannel(chan, chan->_lastRenderedBbox, blitTo, chan == hiliteChannel);
+ 		}
+ 		renderChannel(chan, bbox, blitTo, chan == hiliteChannel);
+-- 
+2.51.0
