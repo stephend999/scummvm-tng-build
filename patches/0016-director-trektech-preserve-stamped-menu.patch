@@ -1,0 +1,126 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: preserve Trek Tech stamped menu pixels
+
+Trek Tech constructs its right-hand topic menu by moving trails-enabled
+sprite 20 down the stage and stamping each row.  Once construction is
+complete, that sprite is reduced to a one-pixel placeholder, so the stamped
+rows no longer have live score sprites capable of repainting them.
+
+Entering a QTVR object redraws the full-height frame on sprite 3.  Its right
+edge overlaps the stamped menu by 32 pixels, and the ordinary dirty-rectangle
+path clears those historical trail pixels before repainting the frame.  This
+removes the first letters of every menu row.  Reopening and aborting Location
+restamps the menu after the frame redraw, which is why that action restores
+the text.
+
+Track only the rectangles stamped by Trek Tech's known menu sprite.  When the
+known frame sprite later redraws, split its dirty rectangle around those
+pixels instead of clearing them.  Reset the saved bounds on a full/new-movie
+draw or when a new menu-stamping pass begins.  Other channels, videos, titles,
+and rendering paths are unchanged.
+---
+ engines/director/window.cpp | 57 +++++++++++++++++++++++++++++++++++++---------
+ engines/director/window.h   |  4 ++++
+ 2 files changed, 50 insertions(+), 15 deletions(-)
+
+diff --git a/engines/director/window.h b/engines/director/window.h
+--- a/engines/director/window.h
++++ b/engines/director/window.h
+@@ -252,6 +252,10 @@ private:
+ 	bool _playbackPaused;
+ 
+ private:
++	// Historical trail pixels stamped by Trek Tech's right-hand menu.  They
++	// have no live sprites after menu construction and must survive the
++	// overlapping frame sprite's later QTVR redraw.
++	Common::Rect _trekMenuTrailBounds;
+ 	uint32 _stageColor;
+ 
+ 	DirectorEngine *_vm;
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -296,10 +296,14 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 
+ 	Channel *hiliteChannel = score->getChannelById(_currentMovie->_currentHiliteChannelId);
+ 
++	bool isTrekTech = strcmp(g_director->getGameId(), "trektech") == 0;
++	if (isTrekTech && (forceRedraw || _resetScreen || _newMovieFirstDraw))
++		_trekMenuTrailBounds = Common::Rect();
++
+ 	if (_resetScreen) {
+ 		_resetScreen = false;
+ 		forceRedraw = true;
+ 	}
+ 	if (_newMovieFirstDraw) {
+ 		_newMovieFirstDraw = false;
+ 		forceRedraw = true;
+@@ -326,23 +330,50 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 		Common::Rect bbox = chan->getBbox();
+ 
+ 		debugC(7, kDebugImages, "Window::render(): drawing channel %d", (int)i);
+ 
+-		// Trek Tech builds the orange topic menu by moving one trails-enabled
+-		// sprite down the right side and stamping each row onto the stage.  Its
+-		// PathZone text sprite is authored over that same area, then moved to the
+-		// breadcrumb below the menu once the detail view is ready.  Clearing the
+-		// PathZone's old bounding box at that point erases the already-stamped
+-		// menu rows; there are no live sprites from which to redraw those pixels.
+-		// The menu has already painted over the old PathZone, so retain that
+-		// rectangle only for this one authored-to-breadcrumb relocation.
+-		bool preserveTrekPathZoneTrails = strcmp(g_director->getGameId(), "trektech") == 0 &&
+-				i == 19 && chan->_sprite && chan->_sprite->_castId.member == 151 &&
+-				chan->_lastRenderedBbox.top < 150 && bbox.top > 200;
+-
+-		if (!chan->_lastTrail && !preserveTrekPathZoneTrails) {
+-			renderChannel(chan, chan->_lastRenderedBbox, blitTo, chan == hiliteChannel);
++		// Sprite 20 stamps each Trek Tech menu row with trails, then returns to
++		// a one-pixel placeholder.  Remember the exact union of the stamped rows.
++		// A transition from that placeholder to a real row marks a new menu pass.
++		if (isTrekTech && i == 20 && chan->isTrail() && bbox.width() > 1 && bbox.height() > 1) {
++			if (chan->_lastRenderedBbox.width() <= 1 && chan->_lastRenderedBbox.height() <= 1)
++				_trekMenuTrailBounds = Common::Rect();
++
++			if (_trekMenuTrailBounds.isEmpty())
++				_trekMenuTrailBounds = bbox;
++			else
++				_trekMenuTrailBounds.extend(bbox);
+ 		}
+-		renderChannel(chan, bbox, blitTo, chan == hiliteChannel);
++
++		// Sprite 3 is the full-height blue frame.  During QTVR entry it redraws
++		// after menu construction and overlaps the left edge of the historical
++		// trail pixels.  Draw only the parts of its dirty rectangle outside the
++		// recorded menu bounds.  No other channel uses this exception.
++		auto renderPreservingTrekMenu = [&](const Common::Rect &dirtyRect) {
++			if (!isTrekTech || i != 3 || _trekMenuTrailBounds.isEmpty()) {
++				renderChannel(chan, dirtyRect, blitTo, chan == hiliteChannel);
++				return;
++			}
++
++			Common::Rect preserved = _trekMenuTrailBounds;
++			preserved.clip(dirtyRect);
++			if (preserved.isEmpty()) {
++				renderChannel(chan, dirtyRect, blitTo, chan == hiliteChannel);
++				return;
++			}
++
++			renderChannel(chan, Common::Rect(dirtyRect.left, dirtyRect.top,
++					dirtyRect.right, preserved.top), blitTo, chan == hiliteChannel);
++			renderChannel(chan, Common::Rect(dirtyRect.left, preserved.bottom,
++					dirtyRect.right, dirtyRect.bottom), blitTo, chan == hiliteChannel);
++			renderChannel(chan, Common::Rect(dirtyRect.left, preserved.top,
++					preserved.left, preserved.bottom), blitTo, chan == hiliteChannel);
++			renderChannel(chan, Common::Rect(preserved.right, preserved.top,
++					dirtyRect.right, preserved.bottom), blitTo, chan == hiliteChannel);
++		};
++
++		if (!chan->_lastTrail)
++			renderPreservingTrekMenu(chan->_lastRenderedBbox);
++		renderPreservingTrekMenu(bbox);
+ 		chan->_needsDraw = false;
+ 		chan->_lastRenderedBbox = bbox;
+ 		chan->_lastTrail = chan->isTrail();
+ 	}
+-- 
+2.51.0
