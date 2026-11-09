@@ -1,0 +1,115 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: fix Trek Tech voice shortcut and menu rows
+
+Trek Tech's QTVR widget consumes keyboard events before Movie can see them,
+which made the voice-only shortcut unreachable on the title's normal screens.
+Handle the title-specific shortcut before the window manager, suppress key
+repeats, and update the title's existing audio globals without re-entering a
+Lingo handler.
+
+The title also stamps its element and parallel bars onto the stage and uses a
+global coordinate-zone handler for the full rows.  Decorative sprites over the
+labels must not make mouseCast report a cast member or the authored handler is
+skipped.  For Trek Tech only, make mouseCast select mouse-responsive sprites;
+this preserves real buttons while restoring full-row clicks on all menus.
+---
+ engines/director/events.cpp          | 60 +++++++++++++++++++++---------------
+ engines/director/lingo/lingo-the.cpp |  7 ++++-
+ 2 files changed, 42 insertions(+), 25 deletions(-)
+
+diff --git a/engines/director/events.cpp b/engines/director/events.cpp
+--- a/engines/director/events.cpp
++++ b/engines/director/events.cpp
+@@ -61,6 +61,39 @@ bool DirectorEngine::processSysEvents(bool captureClick, bool skipWindowManager)
+ 
+ 	Common::Event event;
+ 	while (pollEvent(event)) {
++		// Trek Tech's QTVR widget consumes all keyboard events before the movie
++		// can see them.  Handle the title's voice-only easter egg here, ahead
++		// of the window manager, so it also works while a panorama is active.
++		if (Common::String(getGameId()).equals("trektech") &&
++				event.type == Common::EVENT_KEYDOWN && !event.kbdRepeat &&
++				event.kbd.keycode == Common::KEYCODE_v &&
++				(event.kbd.flags & (Common::KBD_CTRL | Common::KBD_SHIFT)) ==
++						(Common::KBD_CTRL | Common::KBD_SHIFT) &&
++				g_lingo && g_lingo->_globalvars.contains("gVoiceEnable") &&
++				g_lingo->_globalvars.contains("gSoundEnable")) {
++			const bool voiceOnly = g_lingo->_globalvars["gVoiceEnable"].asInt() &&
++					!g_lingo->_globalvars["gSoundEnable"].asInt();
++			Window *window = getCurrentWindow();
++
++			g_lingo->_globalvars["gVoiceEnable"] = Datum(1);
++			g_lingo->_globalvars["gSoundEnable"] = Datum(voiceOnly ? 1 : 0);
++			if (g_lingo->_globalvars.contains("gSoundSetting"))
++				g_lingo->_globalvars["gSoundSetting"] = Datum(1);
++
++			if (!voiceOnly) {
++				if (window && window->getSoundManager()) {
++					window->getSoundManager()->stopSound(1);
++					window->getSoundManager()->stopSound(2);
++				}
++				g_system->displayMessageOnOSD(Common::U32String("Voice Only: ON"));
++			} else {
++				if (window && window->getCurrentMovie() && window->getCurrentMovie()->getScore())
++					window->getCurrentMovie()->getScore()->playSoundChannel(false);
++				g_system->displayMessageOnOSD(Common::U32String("Voice Only: OFF"));
++			}
++			continue;
++		}
++
+ 		if (Director::DT::isMouseInputIgnored()) {
+ 			if (Common::isMouseEvent(event)) {
+ 				if (event.type == Common::EVENT_LBUTTONDOWN) {
+@@ -340,35 +373,6 @@ bool Movie::processSysEvent(Common::Event &event) {
+ 		return result;
+ 
+ 	case Common::EVENT_KEYDOWN:
+-		if (Common::String(g_director->getGameId()).equals("trektech") &&
+-				event.kbd.keycode == Common::KEYCODE_v &&
+-				(event.kbd.flags & (Common::KBD_CTRL | Common::KBD_SHIFT)) ==
+-						(Common::KBD_CTRL | Common::KBD_SHIFT) &&
+-				g_lingo->_globalvars.contains("gVoiceEnable") &&
+-				g_lingo->_globalvars.contains("gSoundEnable")) {
+-			// Trek Tech already keeps voice and other sound in separate globals,
+-			// but its UI never exposes the voice-on/sound-off combination.  Use
+-			// the normal Voice + Sound handler to keep the authored button state
+-			// coherent, then override only the non-voice switch for this easter egg.
+-			const bool voiceOnly = g_lingo->_globalvars["gVoiceEnable"].asInt() &&
+-					!g_lingo->_globalvars["gSoundEnable"].asInt();
+-			Datum voiceState(Common::String("voice"));
+-			voiceState.type = SYMBOL;
+-			g_lingo->push(voiceState);
+-			g_lingo->executeHandler("setAudioState", 1);
+-
+-			if (!voiceOnly) {
+-				g_lingo->_globalvars["gSoundEnable"] = Datum(0);
+-				_window->getSoundManager()->stopSound(1);
+-				_window->getSoundManager()->stopSound(2);
+-				g_system->displayMessageOnOSD(Common::U32String("Voice Only: ON"));
+-			} else {
+-				sc->playSoundChannel(false);
+-				g_system->displayMessageOnOSD(Common::U32String("Voice Only: OFF"));
+-			}
+-			return true;
+-		}
+-
+ 		_vm->_keyCode = _vm->_KeyCodes.contains(event.kbd.keycode) ? _vm->_KeyCodes[event.kbd.keycode] : 0;
+ 		_vm->_key = event.kbd.ascii;
+ 		// While most non-letter keys don't affect "the keyPress", there
+diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
+--- a/engines/director/lingo/lingo-the.cpp
++++ b/engines/director/lingo/lingo-the.cpp
+@@ -843,7 +843,12 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
+ 		{
+ 			// TODO: How is this handled with multiple casts in D5?
+ 			Common::Point pos = g_director->getCurrentWindow()->getMousePos();
+-			uint16 spriteId = score->getSpriteIDFromPos(pos);
++			// Trek Tech stamps its topic bars onto the stage, then handles the
++			// complete rows through a global coordinate-zone script. Decorative
++			// sprites over the text must not make mouseCast report a cast member,
++			// or that authored handler only receives clicks in the small square.
++			uint16 spriteId = Common::String(g_director->getGameId()).equals("trektech") ?
++					score->getMouseSpriteIDFromPos(pos) : score->getSpriteIDFromPos(pos);
+ 			if (spriteId) {
+ 				d = score->getSpriteById(spriteId)->_castId.toMultiplex();
+ 			} else {

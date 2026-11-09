@@ -64,6 +64,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0019-director-trektech-object-drag-surface.patch'
           Apply-RepositoryPatch 'patches/0020-director-trektech-native-wireframe-size.patch'
           Apply-RepositoryPatch 'patches/0021-director-trektech-voice-only-shortcut.patch'
+          Apply-RepositoryPatch 'patches/0022-director-trektech-voice-and-menu-input.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'
