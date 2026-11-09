@@ -1,0 +1,128 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: apply digital video sound state
+
+Director stores a digital video's sound property on its cast member, but the
+value was never propagated to the decoder's audio tracks.  As a result Trek
+Tech's authored Sound and Silent modes changed their state without muting
+QuickTime audio, and the title-specific voice-only shortcut could not silence
+the active ambient movie.
+
+Add a decoder operation which mutes every audio track, apply the cast member's
+sound state after loading and whenever Lingo changes it, and have Trek Tech's
+Alt+V shortcut update digital-video casts on the active score.  Video playback,
+timing and rendering are unchanged.
+---
+ engines/director/castmember/digitalvideo.cpp |  8 +++++++-
+ engines/director/castmember/digitalvideo.h   |  1 +
+ engines/director/events.cpp                  | 12 ++++++++++++
+ video/video_decoder.cpp                      |  7 +++++++
+ video/video_decoder.h                        |  7 +++++++
+ 5 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/video/video_decoder.h b/video/video_decoder.h
+--- a/video/video_decoder.h
++++ b/video/video_decoder.h
+@@ -522,6 +522,13 @@ public:
+ 	 */
+ 	bool setAudioTrackMute(int index, bool muted);
+ 
++	/**
++	 * Mute or unmute all audio tracks.
++	 *
++	 * @param muted Whether to mute the tracks or not.
++	 */
++	void setAudioMute(bool muted);
++
+ 	/**
+ 	 * Get the number of internal audio tracks.
+ 	 */
+diff --git a/video/video_decoder.cpp b/video/video_decoder.cpp
+--- a/video/video_decoder.cpp
++++ b/video/video_decoder.cpp
+@@ -919,6 +919,13 @@ bool VideoDecoder::setAudioTrackMute(int index, bool muted) {
+ 	return true;
+ }
+ 
++void VideoDecoder::setAudioMute(bool muted) {
++	for (auto &track : _tracks) {
++		if (track->getTrackType() == Track::kTrackTypeAudio)
++			static_cast<AudioTrack *>(track)->setMute(muted);
++	}
++}
++
+ 
+ uint VideoDecoder::getAudioTrackCount() const {
+ 	uint count = 0;
+diff --git a/engines/director/castmember/digitalvideo.h b/engines/director/castmember/digitalvideo.h
+--- a/engines/director/castmember/digitalvideo.h
++++ b/engines/director/castmember/digitalvideo.h
+@@ -65,6 +65,7 @@ public:
+ 	void setFrameRate(int rate);
+ 	bool getTrackEnabled(int track);
+ 	void setTrackEnabled(int track, bool value);
++	void setSoundEnabled(bool enabled);
+ 
+ 	bool hasField(int field) override;
+ 	Datum getField(int field) override;
+diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/castmember/digitalvideo.cpp
+--- a/engines/director/castmember/digitalvideo.cpp
++++ b/engines/director/castmember/digitalvideo.cpp
+@@ -376,5 +376,6 @@ bool DigitalVideoCastMember::loadVideo(Common::String path) {
+ 		_initialRect.setWidth(_video->getWidth());
+ 		_initialRect.setHeight(_video->getHeight());
++		_video->setAudioMute(!_enableSound);
+ 	}
+ 
+ 	return result;
+@@ -740,6 +741,11 @@ void DigitalVideoCastMember::setTrackEnabled(int track, bool value) {
+ 	_video->setAudioTrackMute(track, !value);
+ }
+ 
++void DigitalVideoCastMember::setSoundEnabled(bool enabled) {
++	_enableSound = enabled;
++	if (_video)
++		_video->setAudioMute(!enabled);
++}
+ 
+ Common::String DigitalVideoCastMember::formatInfo() {
+ 	return Common::String::format(
+@@ -927,7 +933,7 @@ void DigitalVideoCastMember::setField(int field, const Datum &d) {
+ 		}
+ 		return;
+ 	case kTheSound:
+-		_enableSound = (bool)d.asInt();
++		setSoundEnabled((bool)d.asInt());
+ 		return;
+ 	case kTheTimeScale:
+ 		warning("DigitalVideoCastMember::setField(): Attempt to set read-only field %s of cast %d", g_lingo->entity2str(field), _castId);
+diff --git a/engines/director/events.cpp b/engines/director/events.cpp
+--- a/engines/director/events.cpp
++++ b/engines/director/events.cpp
+@@ -34,6 +34,7 @@
+ #include "director/sprite.h"
+ #include "director/window.h"
+ #include "director/castmember/castmember.h"
++#include "director/castmember/digitalvideo.h"
+ #include "director/debugger/debugtools.h"
+ #include "director/lingo/lingo.h"
+ #include "director/sound.h"
+@@ -161,6 +162,17 @@ bool Window::processSysEvent(Common::Event &event) {
+ 			if (g_lingo->_globalvars.contains("gSoundSetting"))
+ 				g_lingo->_globalvars["gSoundSetting"] = Datum(1);
+ 
++			if (_currentMovie && _currentMovie->getScore()) {
++				const bool soundEnabled = voiceOnly;
++				for (Channel *channel : _currentMovie->getScore()->_channels) {
++					if (!channel || !channel->_sprite)
++						continue;
++					CastMember *cast = channel->_sprite->_cast;
++					if (cast && cast->_type == kCastDigitalVideo)
++						static_cast<DigitalVideoCastMember *>(cast)->setSoundEnabled(soundEnabled);
++				}
++			}
++
+ 			if (!voiceOnly) {
+ 				if (getSoundManager()) {
+ 					getSoundManager()->stopSound(1);
+-- 
+2.51.0.windows.1
