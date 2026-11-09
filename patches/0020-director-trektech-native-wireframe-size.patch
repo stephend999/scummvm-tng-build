@@ -1,0 +1,35 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: restore Trek Tech wireframe movie dimensions
+
+The exterior location has no 03WbegQ.mov.  Its missing opening wireframe can
+leave puppet sprite 19 carrying stale stretched dimensions when the valid
+08WendQ.mov destination movie is assigned, rendering that movie as vertical
+strips.
+
+Trek Tech uses sprite 19 exclusively for 180x155 wireframe movies.  Clear its
+stale stretch state when assigning a digital-video cast so setCast restores
+the movie's native dimensions while retaining the sprite's authored stage
+position.  Other sprites, games, videos, and custom puppet sizing are
+unchanged.
+---
+ engines/director/lingo/lingo-the.cpp | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
+--- a/engines/director/lingo/lingo-the.cpp
++++ b/engines/director/lingo/lingo-the.cpp
+@@ -1926,6 +1926,14 @@ void Lingo::setTheSprite(Datum &id1, int field, Datum &d) {
+ 			// Since Digital Video dimensions get clarified after loading,
+ 			// we enforce them here
+ 			if (castId != sprite->_castId || (castMember && castMember->_type == kCastDigitalVideo)) {
++				// Trek Tech always authors its wireframe movies at their native
++				// 180x155 size.  The exterior has no 03WbegQ.mov, so sprite 19 can
++				// otherwise carry stale stretched dimensions into 08WendQ.mov and
++				// render the destination wireframe as vertical strips.  Reset only
++				// this dedicated wireframe sprite; setCast keeps its stage position.
++				if (id == 19 && castMember && castMember->_type == kCastDigitalVideo &&
++						Common::String(g_director->getGameId()).equals("trektech"))
++					sprite->_stretch = false;
+ 				channel->setCast(castId);
+ 			}
+ 		}
