@@ -1,0 +1,114 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: fix Trek Tech active-window input
+
+Trek Tech's global menu handler expects mouseCast to return -1 when the
+pointer is not over a cast member.  ScummVM returned zero, so the authored
+full-row coordinate zones never received clicks on their text labels.
+
+The title's voice-only shortcut also ran before the active Window switched
+Lingo state, so its audio globals were unavailable and QTVR then consumed the
+key event.  Handle Alt+V after selecting the Window state and before its movie
+or QTVR receives the event.  Alt avoids QTVR's Shift/Ctrl zoom controls.
+---
+ engines/director/events.cpp          | 68 +++++++++++++++++------------------
+ engines/director/lingo/lingo-the.cpp |  5 ++-
+ 2 files changed, 38 insertions(+), 35 deletions(-)
+
+diff --git a/engines/director/events.cpp b/engines/director/events.cpp
+--- a/engines/director/events.cpp
++++ b/engines/director/events.cpp
+@@ -61,39 +61,6 @@ bool DirectorEngine::processSysEvents(bool captureClick, bool skipWindowManager)
+ 
+ 	Common::Event event;
+ 	while (pollEvent(event)) {
+-		// Trek Tech's QTVR widget consumes all keyboard events before the movie
+-		// can see them.  Handle the title's voice-only easter egg here, ahead
+-		// of the window manager, so it also works while a panorama is active.
+-		if (Common::String(getGameId()).equals("trektech") &&
+-				event.type == Common::EVENT_KEYDOWN && !event.kbdRepeat &&
+-				event.kbd.keycode == Common::KEYCODE_v &&
+-				(event.kbd.flags & (Common::KBD_CTRL | Common::KBD_SHIFT)) ==
+-						(Common::KBD_CTRL | Common::KBD_SHIFT) &&
+-				g_lingo && g_lingo->_globalvars.contains("gVoiceEnable") &&
+-				g_lingo->_globalvars.contains("gSoundEnable")) {
+-			const bool voiceOnly = g_lingo->_globalvars["gVoiceEnable"].asInt() &&
+-					!g_lingo->_globalvars["gSoundEnable"].asInt();
+-			Window *window = getCurrentWindow();
+-
+-			g_lingo->_globalvars["gVoiceEnable"] = Datum(1);
+-			g_lingo->_globalvars["gSoundEnable"] = Datum(voiceOnly ? 1 : 0);
+-			if (g_lingo->_globalvars.contains("gSoundSetting"))
+-				g_lingo->_globalvars["gSoundSetting"] = Datum(1);
+-
+-			if (!voiceOnly) {
+-				if (window && window->getSoundManager()) {
+-					window->getSoundManager()->stopSound(1);
+-					window->getSoundManager()->stopSound(2);
+-				}
+-				g_system->displayMessageOnOSD(Common::U32String("Voice Only: ON"));
+-			} else {
+-				if (window && window->getCurrentMovie() && window->getCurrentMovie()->getScore())
+-					window->getCurrentMovie()->getScore()->playSoundChannel(false);
+-				g_system->displayMessageOnOSD(Common::U32String("Voice Only: OFF"));
+-			}
+-			continue;
+-		}
+-
+ 		if (Director::DT::isMouseInputIgnored()) {
+ 			if (Common::isMouseEvent(event)) {
+ 				if (event.type == Common::EVENT_LBUTTONDOWN) {
+@@ -178,8 +145,38 @@ bool Window::processSysEvent(Common::Event &event) {
+ 		g_director->setCurrentWindow(this);
+ 		g_lingo->switchStateFromWindow();
+ 
+-		if (_currentMovie && _currentMovie->processSysEvent(event))
++		// Handle Trek Tech's voice-only easter egg only after switching to this
++		// window's Lingo state.  Doing this here also precedes QTVR's keyboard
++		// handling.  Alt+V avoids QTVR's Shift/Ctrl zoom controls.
++		if (Common::String(g_director->getGameId()).equals("trektech") &&
++				event.type == Common::EVENT_KEYDOWN && !event.kbdRepeat &&
++				event.kbd.keycode == Common::KEYCODE_v &&
++				(event.kbd.flags & (Common::KBD_ALT | Common::KBD_CTRL | Common::KBD_SHIFT)) == Common::KBD_ALT &&
++				g_lingo->_globalvars.contains("gVoiceEnable") &&
++				g_lingo->_globalvars.contains("gSoundEnable")) {
++			const bool voiceOnly = g_lingo->_globalvars["gVoiceEnable"].asInt() &&
++					!g_lingo->_globalvars["gSoundEnable"].asInt();
++
++			g_lingo->_globalvars["gVoiceEnable"] = Datum(1);
++			g_lingo->_globalvars["gSoundEnable"] = Datum(voiceOnly ? 1 : 0);
++			if (g_lingo->_globalvars.contains("gSoundSetting"))
++				g_lingo->_globalvars["gSoundSetting"] = Datum(1);
++
++			if (!voiceOnly) {
++				if (getSoundManager()) {
++					getSoundManager()->stopSound(1);
++					getSoundManager()->stopSound(2);
++				}
++				g_system->displayMessageOnOSD(Common::U32String("Voice Only: ON (Alt+V)"));
++			} else {
++				if (_currentMovie && _currentMovie->getScore())
++					_currentMovie->getScore()->playSoundChannel(false);
++				g_system->displayMessageOnOSD(Common::U32String("Voice Only: OFF (Alt+V)"));
++			}
+ 			flag = true;
++		} else if (_currentMovie && _currentMovie->processSysEvent(event)) {
++			flag = true;
++		}
+ 
+ 		g_director->setCurrentWindow(prev);
+ 		prev->decRefCount();
+diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
+--- a/engines/director/lingo/lingo-the.cpp
++++ b/engines/director/lingo/lingo-the.cpp
+@@ -853,7 +853,10 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
+ 			if (spriteId) {
+ 				d = score->getSpriteById(spriteId)->_castId.toMultiplex();
+ 			} else {
+-				d = 0;
++				// Trek Tech's authored background-click handler explicitly tests
++				// mouseCast against -1 before dispatching its full rectangular menu
++				// zones.  Returning 0 drops clicks on the row labels.
++				d = Common::String(g_director->getGameId()).equals("trektech") ? -1 : 0;
+ 			}
+ 		}
+ 		break;
