@@ -1,0 +1,65 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: add Trek Tech voice-only shortcut
+
+Trek Tech maintains separate gVoiceEnable and gSoundEnable switches, but its
+three-state menu never offers the voice-on/sound-off combination.  Add a
+title-specific Ctrl+Shift+V easter egg which toggles that fourth state.
+
+Use the title's normal Voice + Sound handler to keep its authored button and
+preference state coherent.  Voice-only mode then disables future non-voice
+sound and immediately stops Director channels 1 and 2 while leaving narration
+on channel 3 untouched.  Toggling it off restores the normal handler and
+restarts the current score sounds.  An OSD message confirms both transitions.
+Other Director titles and ordinary key events are unchanged.
+---
+ engines/director/events.cpp | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/engines/director/events.cpp b/engines/director/events.cpp
+--- a/engines/director/events.cpp
++++ b/engines/director/events.cpp
+@@ -36,6 +36,8 @@
+ #include "director/window.h"
+ #include "director/castmember/castmember.h"
+ #include "director/debugger/debugtools.h"
++#include "director/lingo/lingo.h"
++#include "director/sound.h"
+ 
+ namespace Director {
+ 
+@@ -336,6 +338,35 @@ bool Movie::processSysEvent(Common::Event &event) {
+ 		return result;
+ 
+ 	case Common::EVENT_KEYDOWN:
++		if (Common::String(g_director->getGameId()).equals("trektech") &&
++				event.kbd.keycode == Common::KEYCODE_v &&
++				(event.kbd.flags & (Common::KBD_CTRL | Common::KBD_SHIFT)) ==
++						(Common::KBD_CTRL | Common::KBD_SHIFT) &&
++				g_lingo->_globalvars.contains("gVoiceEnable") &&
++				g_lingo->_globalvars.contains("gSoundEnable")) {
++			// Trek Tech already keeps voice and other sound in separate globals,
++			// but its UI never exposes the voice-on/sound-off combination.  Use
++			// the normal Voice + Sound handler to keep the authored button state
++			// coherent, then override only the non-voice switch for this easter egg.
++			const bool voiceOnly = g_lingo->_globalvars["gVoiceEnable"].asInt() &&
++					!g_lingo->_globalvars["gSoundEnable"].asInt();
++			Datum voiceState(Common::String("voice"));
++			voiceState.type = SYMBOL;
++			g_lingo->push(voiceState);
++			g_lingo->executeHandler("setAudioState", 1);
++
++			if (!voiceOnly) {
++				g_lingo->_globalvars["gSoundEnable"] = Datum(0);
++				_window->getSoundManager()->stopSound(1);
++				_window->getSoundManager()->stopSound(2);
++				g_system->displayMessageOnOSD(Common::U32String("Voice Only: ON"));
++			} else {
++				sc->playSoundChannel(false);
++				g_system->displayMessageOnOSD(Common::U32String("Voice Only: OFF"));
++			}
++			return true;
++		}
++
+ 		_vm->_keyCode = _vm->_KeyCodes.contains(event.kbd.keycode) ? _vm->_KeyCodes[event.kbd.keycode] : 0;
+ 		_vm->_key = event.kbd.ascii;
+ 		// While most non-letter keys don't affect "the keyPress", there
