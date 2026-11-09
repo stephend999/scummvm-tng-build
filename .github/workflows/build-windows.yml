@@ -61,6 +61,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0016-director-trektech-preserve-stamped-menu.patch'
           Apply-RepositoryPatch 'patches/0017-director-trektech-wireframe-and-object-control.patch'
           Apply-RepositoryPatch 'patches/0018-director-qtvr-cancel-object-drag-on-exit.patch'
+          Apply-RepositoryPatch 'patches/0019-director-trektech-object-drag-surface.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'

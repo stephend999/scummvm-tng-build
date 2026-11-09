@@ -1,0 +1,68 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: use full Trek Tech QTVR object as drag surface
+
+QuickTime VR objects normally reserve a narrow border for click-to-nudge
+controls.  Trek Tech presents its rotatable details as a single drag surface,
+so clicking that border unexpectedly changes a row or column before dragging
+and does not record a new drag origin.
+
+Add an opt-out for the decoder's border nudge and enable it only for Trek
+Tech's legacy QTVR object movies.  Every click then records the exact drag
+origin while horizontal columns and vertical rows retain their existing
+movement behavior.  Other QTVR objects and all panoramas are unchanged.
+---
+ engines/director/lingo/xlibs/q/qtvr.cpp | 3 +++
+ video/qt_decoder.h                      | 2 ++
+ video/qtvr_decoder.cpp                  | 8 +++++++-
+ 3 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/lingo/xlibs/q/qtvr.cpp b/engines/director/lingo/xlibs/q/qtvr.cpp
+--- a/engines/director/lingo/xlibs/q/qtvr.cpp
++++ b/engines/director/lingo/xlibs/q/qtvr.cpp
+@@ -350,6 +350,9 @@ void QTVR::m_openMovie(int nargs) {
+ 		g_lingo->push(error);
+ 		return;
+ 	}
++	if (Common::String(g_director->getGameId()).equals("trektech") &&
++			me->_video->getQTVRType() == Common::QuickTimeParser::QTVRType::OBJECT)
++		me->_video->setObjectClickNudgeEnabled(false);
+ 
+ 	me->_video->setTargetSize(320, 200);
+ 
+diff --git a/video/qt_decoder.h b/video/qt_decoder.h
+--- a/video/qt_decoder.h
++++ b/video/qt_decoder.h
+@@ -87,6 +87,7 @@ public:
+ 
+ 	void handleMouseMove(int16 x, int16 y);
+ 	void handleMouseButton(bool isDown, int16 x = -1, int16 y = -1, bool repeat = false);
++	void setObjectClickNudgeEnabled(bool enabled) { _objectClickNudgeEnabled = enabled; }
+ 	void handleKey(Common::KeyState &state, bool down, bool repeat = false);
+ 	void handleQuit();
+ 
+@@ -218,6 +219,7 @@ public:
+ 
+ private:
+ 	Common::Rect _curBbox;
++	bool _objectClickNudgeEnabled = true;
+ 
+ 	int _currentQTVRCursor = -1;
+ 	Common::Archive *_dataBundle = nullptr;
+diff --git a/video/qtvr_decoder.cpp b/video/qtvr_decoder.cpp
+--- a/video/qtvr_decoder.cpp
++++ b/video/qtvr_decoder.cpp
+@@ -1597,7 +1597,13 @@ void QuickTimeDecoder::handleMouseButton(bool isDown, int16 x, int16 y, bool rep
+ 
+ void QuickTimeDecoder::handleObjectMouseButton(bool isDown, int16 x, int16 y, bool repeat) {
+ 	if (isDown) {
+-		if (y < _curBbox.top) {
++		if (!_objectClickNudgeEnabled) {
++			// Some Director titles use the entire object movie as a drag surface.
++			// Begin at the actual click so the first movement cannot reuse a stale
++			// position or perform an unsolicited directional nudge.
++			_prevMouse.x = x;
++			_prevMouse.y = y;
++		} else if (y < _curBbox.top) {
+ 			setCurrentRow(getCurrentRow() + 1);
+ 		} else if (y > _curBbox.bottom) {
+ 			setCurrentRow(getCurrentRow() - 1);
