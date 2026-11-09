@@ -1,0 +1,49 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: honor Trek Tech score sound mode
+
+Trek Tech uses gSoundEnable for its Sound and Silent modes, but its looping
+ambient track is a Director score sound rather than digital-video audio.  The
+score therefore restarted the loop immediately after Silent mode or the
+voice-only shortcut stopped channels 1 and 2.
+
+For this title only, stop and suppress score sound channels 1 and 2 while the
+authored global is disabled.  Keep Lingo-only channels 3 and 4 available so
+narration remains usable in voice-only mode.
+---
+ engines/director/score.cpp | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/engines/director/score.cpp b/engines/director/score.cpp
+--- a/engines/director/score.cpp
++++ b/engines/director/score.cpp
+@@ -48,6 +48,7 @@
+ #include "director/castmember/movie.h"
+ #include "director/castmember/transition.h"
+ #include "director/debugger/debugtools.h"
++#include "director/lingo/lingo.h"
+ 
+ namespace Director {
+ 
+@@ -1874,6 +1875,20 @@ void Score::playSoundChannel(bool puppetOnly, bool sound1Changed, bool sound2Cha
+ 			sound1.asString().c_str(), sound1Changed, sound->isChannelPuppet(1), _currentFrame->_mainChannels.soundType1, sound->getChannelVolume(1),
+ 			sound2.asString().c_str(), sound2Changed, sound->isChannelPuppet(2), _currentFrame->_mainChannels.soundType2, sound->getChannelVolume(2));
+ 
++	if (Common::String(g_director->getGameId()).equals("trektech") && _lingo &&
++			_lingo->_globalvars.contains("gSoundEnable") &&
++			!_lingo->_globalvars["gSoundEnable"].asInt()) {
++		sound->stopSound(1);
++		sound->stopSound(2);
++		// Channels above 2 are only usable by Lingo.  Trek Tech uses channel 3
++		// for narration, which must remain available in voice-only mode.
++		if (_version >= kFileVer300) {
++			sound->playPuppetSound(3);
++			sound->playPuppetSound(4);
++		}
++		return;
++	}
++
+ 	if (sound->isChannelPuppet(1)) {
+ 		sound->playPuppetSound(1);
+ 	} else if (!puppetOnly && sound1Changed) {
+-- 
+2.51.0.windows.1

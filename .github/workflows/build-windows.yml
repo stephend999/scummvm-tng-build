@@ -67,6 +67,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0022-director-trektech-voice-and-menu-input.patch'
           Apply-RepositoryPatch 'patches/0023-director-trektech-active-input.patch'
           Apply-RepositoryPatch 'patches/0024-director-apply-digital-video-sound.patch'
+          Apply-RepositoryPatch 'patches/0025-director-trektech-gate-score-sound.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'
