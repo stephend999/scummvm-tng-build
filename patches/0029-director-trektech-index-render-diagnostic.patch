@@ -1,0 +1,91 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace Trek Tech Index rendering
+
+This diagnostic patch makes no rendering or input changes. It records the
+authored Index highlight's requested and rendered positions, plus all score
+sprites whose current or previous rectangles intersect the bottom-right map
+area when Index is entered or exited.
+---
+ engines/director/lingo/lingo-the.cpp | 38 ++++++++++++++++++++++++++++
+ engines/director/window.cpp          | 10 ++++++++
+ 2 files changed, 48 insertions(+)
+
+diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
+--- a/engines/director/lingo/lingo-the.cpp
++++ b/engines/director/lingo/lingo-the.cpp
+@@ -2104,8 +2104,30 @@ void Lingo::setTheSprite(Datum &id1, int field, Datum &d) {
+ 		break;
+ 	case kTheLocV:
+ 		if (d.asInt() != channel->getPosition().y) {
++			bool trekIndexHilite = Common::String(g_director->getGameId()).equals("trektech") &&
++					g_lingo->_globalvars.contains("gImInIndex") &&
++					g_lingo->_globalvars["gImInIndex"].asInt() &&
++					g_lingo->_globalvars.contains("gIndexHiLiteSpr") &&
++					id == g_lingo->_globalvars["gIndexHiLiteSpr"].asInt();
++			Common::Rect oldBbox;
++			Common::Rect oldLast;
++			Common::Point oldPosition;
++			if (trekIndexHilite) {
++				oldBbox = channel->getBbox();
++				oldLast = channel->_lastRenderedBbox;
++				oldPosition = channel->getPosition();
++			}
+ 			channel->setPosition(channel->getPosition().x, d.asInt());
+ 			channel->setNeedsDraw();
++			if (trekIndexHilite) {
++				Common::Rect newBbox = channel->getBbox();
++				warning("TNG-GEOMETRY index hilite sprite=%d locV=%d->%d bbox=(%d,%d,%d,%d)->(%d,%d,%d,%d) last=(%d,%d,%d,%d) trails=%d visible=%d needsDraw=%d",
++						id, oldPosition.y, d.asInt(),
++						oldBbox.left, oldBbox.top, oldBbox.right, oldBbox.bottom,
++						newBbox.left, newBbox.top, newBbox.right, newBbox.bottom,
++						oldLast.left, oldLast.top, oldLast.right, oldLast.bottom,
++						channel->isTrail(), channel->_visible, channel->_needsDraw);
++			}
+ 		}
+ 
+ 		// Based on Director in a Nutshell, page 15
+@@ -2211,6 +2233,22 @@ void Lingo::setTheSprite(Datum &id1, int field, Datum &d) {
+ 						channel->_lastRenderedBbox.left, channel->_lastRenderedBbox.top,
+ 						channel->_lastRenderedBbox.right, channel->_lastRenderedBbox.bottom,
+ 						channel->hasSubChannels());
++				Common::Rect mapArea(400, 260, 640, 480);
++				for (uint16 candidateId = 1; candidateId < score->_channels.size(); candidateId++) {
++					Channel *candidate = score->getChannelById(candidateId);
++					Common::Rect current = candidate->getBbox();
++					Common::Rect previous = candidate->_lastRenderedBbox;
++					if (candidate->isEmpty() ||
++							(!current.intersects(mapArea) && !previous.intersects(mapArea)))
++						continue;
++					warning("TNG-GEOMETRY map candidate phase=%s sprite=%d cast=%s type=%d visible=%d trails=%d needsDraw=%d bbox=(%d,%d,%d,%d) last=(%d,%d,%d,%d)",
++							d.asInt() ? "exit-index" : "enter-index", candidateId,
++							candidate->_sprite->_castId.asString().c_str(),
++							candidate->_sprite->_cast ? candidate->_sprite->_cast->_type : kCastTypeNull,
++							candidate->_visible, candidate->isTrail(), candidate->_needsDraw,
++							current.left, current.top, current.right, current.bottom,
++							previous.left, previous.top, previous.right, previous.bottom);
++				}
+ 			}
+ 			channel->_visible = (bool)d.asInt();
+ 			channel->setNeedsDraw();
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -341,6 +341,16 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 		if (!chan->_needsDraw && !forceRedraw)
+ 			continue;
+ 		Common::Rect bbox = chan->getBbox();
++		if (isTrekTech && g_lingo->_globalvars.contains("gImInIndex") &&
++				g_lingo->_globalvars["gImInIndex"].asInt() &&
++				g_lingo->_globalvars.contains("gIndexHiLiteSpr") &&
++				i == (size_t)g_lingo->_globalvars["gIndexHiLiteSpr"].asInt()) {
++			warning("TNG-GEOMETRY index hilite render sprite=%u bbox=(%d,%d,%d,%d) last=(%d,%d,%d,%d) trails=%d visible=%d force=%d",
++					(uint)i, bbox.left, bbox.top, bbox.right, bbox.bottom,
++					chan->_lastRenderedBbox.left, chan->_lastRenderedBbox.top,
++					chan->_lastRenderedBbox.right, chan->_lastRenderedBbox.bottom,
++					chan->isTrail(), chan->_visible, forceRedraw);
++		}
+ 
+ 		debugC(7, kDebugImages, "Window::render(): drawing channel %d", (int)i);
+ 
+-- 
+2.51.0
