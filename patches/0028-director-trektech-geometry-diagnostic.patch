@@ -1,0 +1,99 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: log Trek Tech UI geometry
+
+This diagnostic patch makes no rendering or input changes. It records the
+actual rectangles used by the embedded plan movie, Index text widget, and
+Help text field so the next corrective patch can be based on measured
+geometry rather than inferred screen positions.
+---
+ engines/director/castmember/text.cpp |  8 ++++++++
+ engines/director/lingo/lingo-the.cpp | 23 +++++++++++++++++++++++
+ engines/director/window.cpp          | 13 +++++++++++++
+ 3 files changed, 44 insertions(+)
+
+diff --git a/engines/director/castmember/text.cpp b/engines/director/castmember/text.cpp
+--- a/engines/director/castmember/text.cpp
++++ b/engines/director/castmember/text.cpp
+@@ -302,6 +302,14 @@ Graphics::MacWidget *TextCastMember::createWindowOrWidget(Common::Rect &bbox, Co
+ 
+ 	int maxWidth = _initialRect.width() + _borderSize * 2 + _gutterSize * 2 + _boxShadow;
+ 	CastMemberInfo *castInfo = _cast->getCastMemberInfo(_castId);
++	if (Common::String(g_director->getGameId()).equals("trektech") && castInfo &&
++			castInfo->name.equalsIgnoreCase("TheHelpTextWin")) {
++		warning("TNG-GEOMETRY help cast=%d bbox=(%d,%d,%d,%d) dims=(%d,%d,%d,%d) initial=(%d,%d,%d,%d) maxWidth=%d type=%d border=%d gutter=%d shadow=%d",
++				_castId, bbox.left, bbox.top, bbox.right, bbox.bottom,
++				dims.left, dims.top, dims.right, dims.bottom,
++				_initialRect.left, _initialRect.top, _initialRect.right, _initialRect.bottom,
++				maxWidth, _textType, _borderSize, _gutterSize, _boxShadow);
++	}
+ 	// Trek Tech displays its Help explanation field wider than the cast
+ 	// member's initial rectangle. Match the authored on-stage field width.
+ 	if (Common::String(g_director->getGameId()).equals("trektech") && castInfo &&
+diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
+--- a/engines/director/lingo/lingo-the.cpp
++++ b/engines/director/lingo/lingo-the.cpp
+@@ -928,6 +928,21 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
+ 				uint16 indexSprite = g_lingo->_globalvars["gIndexWinSpr"].asInt();
+ 				if (indexSprite) {
+ 					Channel *indexChannel = score->getChannelById(indexSprite);
++					static int lastIndexDiagnosticY = -1000;
++					if (ABS(pos.y - lastIndexDiagnosticY) >= 4) {
++						Common::Rect channelRect = indexChannel->getBbox();
++						Common::Rect widgetRect;
++						int widgetLine = -1;
++						if (indexChannel->_widget) {
++							widgetRect = indexChannel->_widget->getDimensions();
++							widgetLine = indexChannel->getMouseLine(pos.x, pos.y);
++						}
++						warning("TNG-GEOMETRY index mouse=(%d,%d) channel=(%d,%d,%d,%d) channelInside=%d widget=(%d,%d,%d,%d) widgetInside=%d widgetLine=%d",
++								pos.x, pos.y, channelRect.left, channelRect.top, channelRect.right, channelRect.bottom,
++								channelRect.contains(pos), widgetRect.left, widgetRect.top, widgetRect.right, widgetRect.bottom,
++								widgetRect.contains(pos), widgetLine);
++						lastIndexDiagnosticY = pos.y;
++					}
+ 					if (indexChannel->getBbox().contains(pos)) {
+ 						d = indexChannel->getMouseLine(pos.x, pos.y);
+ 						break;
+@@ -2189,6 +2204,14 @@ void Lingo::setTheSprite(Datum &id1, int field, Datum &d) {
+ 	case kTheVisibility:
+ 	case kTheVisible:
+ 		if ((bool)d.asInt() != channel->_visible) {
++			if (Common::String(g_director->getGameId()).equals("trektech") && id == 18) {
++				Common::Rect bbox = channel->getBbox();
++				warning("TNG-GEOMETRY plan visibility %d->%d parent=(%d,%d,%d,%d) last=(%d,%d,%d,%d) subchannels=%d",
++						channel->_visible, (bool)d.asInt(), bbox.left, bbox.top, bbox.right, bbox.bottom,
++						channel->_lastRenderedBbox.left, channel->_lastRenderedBbox.top,
++						channel->_lastRenderedBbox.right, channel->_lastRenderedBbox.bottom,
++						channel->hasSubChannels());
++			}
+ 			channel->_visible = (bool)d.asInt();
+ 			channel->setNeedsDraw();
+ 		}
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -265,9 +265,22 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics::
+ 		if (ch->_visible && !ch->_hideFromStage && !skipTrekBlankVideo) {
+ 			if (ch->hasSubChannels()) {
+ 				Common::Array<Channel> *list = ch->getSubChannels();
++				Common::Rect childUnion;
+ 				for (auto &k : *list) {
++					Common::Rect childRect = k.getBbox();
++					if (childUnion.isEmpty())
++						childUnion = childRect;
++					else
++						childUnion.extend(childRect);
+ 					inkBlitFrom(&k, r, blitTo);
+ 				}
++				if (isTrekTech && ch == score->getChannelById(18)) {
++					Common::Rect parentRect = ch->getBbox();
++					warning("TNG-GEOMETRY plan render parent=(%d,%d,%d,%d) children=(%d,%d,%d,%d) count=%u dirty=(%d,%d,%d,%d)",
++							parentRect.left, parentRect.top, parentRect.right, parentRect.bottom,
++							childUnion.left, childUnion.top, childUnion.right, childUnion.bottom, (uint)list->size(),
++							r.left, r.top, r.right, r.bottom);
++				}
+ 			} else {
+ 				inkBlitFrom(ch, r, blitTo);
+ 				if ((ch == channel) && invert)
+-- 
+2.51.0
