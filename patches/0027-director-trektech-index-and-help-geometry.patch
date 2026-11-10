@@ -1,0 +1,88 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: correct Trek Tech Index and Help geometry
+
+Trek Tech's Index asks for mouseCast and mouseLine separately while several
+puppeted sprites overlap its text field. Resolve both queries against the
+authored "BltIndex Window" field while the Index is active so they cannot
+select different overlapping sprites.
+
+The Help explanation field is displayed wider than its cast member's initial
+rectangle. Use that displayed width for this one title-specific field so its
+text fills the authored box instead of wrapping and clipping early.
+---
+ engines/director/castmember/text.cpp  |  6 ++++++
+ engines/director/lingo/lingo-the.cpp | 29 +++++++++++++++++++++++++++++
+ 2 files changed, 35 insertions(+)
+
+diff --git a/engines/director/castmember/text.cpp b/engines/director/castmember/text.cpp
+--- a/engines/director/castmember/text.cpp
++++ b/engines/director/castmember/text.cpp
+@@ -300,6 +300,12 @@ Graphics::MacWidget *TextCastMember::createWindowOrWidget(Common::Rect &bbox, Co
+ 	Graphics::MacText *widget = nullptr;
+ 
+ 	int maxWidth = _initialRect.width() + _borderSize * 2 + _gutterSize * 2 + _boxShadow;
++	// Trek Tech displays its Help explanation field wider than the cast
++	// member's initial rectangle.  Match the authored on-stage field width.
++	if (Common::String(g_director->getGameId()).equals("trektech") &&
++			getName().equalsIgnoreCase("TheHelpTextWin") && dims.width() > maxWidth)
++		maxWidth = dims.width();
++
+ 	widget = new Graphics::MacText(g_director->getCurrentWindow()->getMacWindow(), bbox.left, bbox.top, dims.width(), dims.height(), g_director->_wm, _ftext, macFont, getForeColor(), getBackColor(), maxWidth, getAlignment(), _lineSpacing, _borderSize, _gutterSize, _boxShadow, _textShadow, _textType == kTextTypeFixed || _textType == kTextTypeScrolling, _textType == kTextTypeScrolling);
+ 	widget->setSelRange(g_director->getCurrentMovie()->_selStart, g_director->getCurrentMovie()->_selEnd);
+ 	widget->draw();
+diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
+--- a/engines/director/lingo/lingo-the.cpp
++++ b/engines/director/lingo/lingo-the.cpp
+@@ -846,12 +846,29 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
+ 			const bool trekTech = Common::String(g_director->getGameId()).equals("trektech");
++			const bool trekTechIndex = trekTech &&
++					g_lingo->_globalvars.contains("gImInIndex") &&
++					g_lingo->_globalvars["gImInIndex"].asInt();
+ 			bool passiveHoverScreen = false;
+ 			if (trekTech) {
+ 				Common::String marker = score->getFrameLabel(score->getCurrentLabelNumber());
+ 				passiveHoverScreen = marker.hasPrefixIgnoreCase("help");
+-				if (g_lingo->_globalvars.contains("gImInIndex") &&
+-						g_lingo->_globalvars["gImInIndex"].asInt())
++				if (trekTechIndex)
+ 					passiveHoverScreen = true;
+ 			}
++			// The Index contains overlapping puppeted sprites.  Director's authored
++			// script expects mouseCast and mouseLine to describe this text field,
++			// rather than whichever overlapping sprite happens to be topmost.
++			if (trekTechIndex) {
++				Movie *movie = g_director->getCurrentMovie();
++				CastMemberID indexMember = movie->getCastMemberIDByName("BltIndex Window");
++				uint16 indexSprite = score->getSpriteIdByMemberId(indexMember);
++				if (indexSprite) {
++					Channel *indexChannel = score->getChannelById(indexSprite);
++					if (indexChannel->getBbox().contains(pos)) {
++						d = indexMember.toMultiplex();
++						break;
++					}
++				}
++			}
+ 			// Trek Tech stamps its topic bars onto the stage, then handles the
+ 			// complete rows through a global coordinate-zone script. Decorative
+ 			// sprites over the text must not make mouseCast report a cast member,
+@@ -905,6 +922,18 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
+ 	case kTheMouseLine:
+ 		{
+ 			Common::Point pos = g_director->getCurrentWindow()->getMousePos();
++			const bool trekTechIndex = Common::String(g_director->getGameId()).equals("trektech") &&
++					g_lingo->_globalvars.contains("gImInIndex") &&
++					g_lingo->_globalvars["gImInIndex"].asInt();
++			if (trekTechIndex) {
++				Movie *movie = g_director->getCurrentMovie();
++				CastMemberID indexMember = movie->getCastMemberIDByName("BltIndex Window");
++				uint16 indexSprite = score->getSpriteIdByMemberId(indexMember);
++				if (indexSprite && score->getChannelById(indexSprite)->getBbox().contains(pos)) {
++					d = score->getChannelById(indexSprite)->getMouseLine(pos.x, pos.y);
++					break;
++				}
++			}
+ 			uint16 spriteId = score->getSpriteIDFromPos(pos);
+ 			Channel *ch = score->getChannelById(spriteId);
+ 			d = ch->getMouseLine(pos.x, pos.y);
+-- 
+2.51.0
