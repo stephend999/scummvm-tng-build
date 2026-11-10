@@ -70,8 +70,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0025-director-trektech-gate-score-sound.patch'
           Apply-RepositoryPatch 'patches/0026-director-trektech-passive-hover-screens.patch'
           Apply-RepositoryPatch 'patches/0027-director-trektech-index-and-help-geometry.patch'
-          Apply-RepositoryPatch 'patches/0028-director-trektech-geometry-diagnostic.patch'
-          Apply-RepositoryPatch 'patches/0029-director-trektech-index-render-diagnostic.patch'
+          Apply-RepositoryPatch 'patches/0030-director-trektech-index-height-and-help-clip.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'
