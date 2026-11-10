@@ -1,30 +1,61 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH] DIRECTOR: correct Trek Tech Index and Help geometry
+Subject: [PATCH] DIRECTOR: correct Trek Tech linked casts and UI geometry
 
-Trek Tech's Index asks for mouseCast and mouseLine separately while several
-puppeted sprites overlap its text field. Resolve both queries against the
-authored "BltIndex Window" field while the Index is active so they cannot
-select different overlapping sprites.
+Trek Tech's Index identifies its text field through the authored
+gIndexWinSpr global. Use that actual score channel for mouseCast and
+mouseLine so overlapping puppeted sprites cannot suppress its highlight.
 
-The Help explanation field is displayed wider than its cast member's initial
-rectangle. Use that displayed width for this one title-specific field so its
-text fills the authored box instead of wrapping and clipping early.
+The Help explanation field is displayed wider than its cast member's
+initial rectangle. Identify that field through its authored cast metadata
+and use the displayed width.
+
+Trek Tech also names linked floor-plan members by their external DIR
+filename when restoring the page after Index. If ordinary cast-name lookup
+fails, match those title-specific DIR references against linked filenames.
 ---
- engines/director/castmember/text.cpp  |  6 ++++++
- engines/director/lingo/lingo-the.cpp | 27 +++++++++++++++++++++++++++
- 2 files changed, 33 insertions(+)
+ engines/director/cast.cpp             | 15 +++++++++++++++
+ engines/director/castmember/text.cpp  |  8 ++++++++
+ engines/director/lingo/lingo-the.cpp | 31 +++++++++++++++++++++++++++++--
+ 3 files changed, 52 insertions(+), 2 deletions(-)
 
+diff --git a/engines/director/cast.cpp b/engines/director/cast.cpp
+--- a/engines/director/cast.cpp
++++ b/engines/director/cast.cpp
+@@ -181,6 +181,21 @@ CastMember *Cast::getCastMemberByNameAndType(const Common::String &name, CastTyp
+ 		if (_castsNames.contains(cname))
+ 			return getCastMember(_castsNames[cname]);
+ 	}
++
++	// Trek Tech stores linked deck plans under their external Director
++	// filenames, then asks for those filenames as cast member names when
++	// leaving Index. Director resolves them; the normal name cache does not.
++	if (Common::String(g_director->getGameId()).equals("trektech") &&
++			name.hasSuffixIgnoreCase(".DIR")) {
++		for (auto &it : _castsInfo) {
++			Common::String fileName = Common::lastPathComponent(it._value->fileName, g_director->_dirSeparator);
++			if (fileName.equalsIgnoreCase(name)) {
++				CastMember *member = getCastMember(it._key);
++				if (member && (type == kCastTypeAny || member->_type == type))
++					return member;
++			}
++		}
++	}
+ 	return nullptr;
+ }
+ 
 diff --git a/engines/director/castmember/text.cpp b/engines/director/castmember/text.cpp
 --- a/engines/director/castmember/text.cpp
 +++ b/engines/director/castmember/text.cpp
-@@ -300,6 +300,12 @@ Graphics::MacWidget *TextCastMember::createWindowOrWidget(Common::Rect &bbox, Co
+@@ -300,6 +300,14 @@ Graphics::MacWidget *TextCastMember::createWindowOrWidget(Common::Rect &bbox, Co
  	Graphics::MacText *widget = nullptr;
  
  	int maxWidth = _initialRect.width() + _borderSize * 2 + _gutterSize * 2 + _boxShadow;
++	CastMemberInfo *castInfo = _cast->getCastMemberInfo(_castId);
 +	// Trek Tech displays its Help explanation field wider than the cast
-+	// member's initial rectangle.  Match the authored on-stage field width.
-+	if (Common::String(g_director->getGameId()).equals("trektech") &&
-+			getName().equalsIgnoreCase("TheHelpTextWin") && dims.width() > maxWidth)
++	// member's initial rectangle. Match the authored on-stage field width.
++	if (Common::String(g_director->getGameId()).equals("trektech") && castInfo &&
++			castInfo->name.equalsIgnoreCase("TheHelpTextWin") &&
++			dims.width() > maxWidth)
 +		maxWidth = dims.width();
 +
  	widget = new Graphics::MacText(g_director->getCurrentWindow()->getMacWindow(), bbox.left, bbox.top, dims.width(), dims.height(), g_director->_wm, _ftext, macFont, getForeColor(), getBackColor(), maxWidth, getAlignment(), _lineSpacing, _borderSize, _gutterSize, _boxShadow, _textShadow, _textType == kTextTypeFixed || _textType == kTextTypeScrolling, _textType == kTextTypeScrolling);
@@ -33,7 +64,7 @@ diff --git a/engines/director/castmember/text.cpp b/engines/director/castmember/
 diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
 --- a/engines/director/lingo/lingo-the.cpp
 +++ b/engines/director/lingo/lingo-the.cpp
-@@ -846,12 +846,28 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
+@@ -846,12 +846,26 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
  			const bool trekTech = Common::String(g_director->getGameId()).equals("trektech");
 +			const bool trekTechIndex = trekTech &&
 +					g_lingo->_globalvars.contains("gImInIndex") &&
@@ -47,16 +78,14 @@ diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo
 +				if (trekTechIndex)
  					passiveHoverScreen = true;
  			}
-+			// The Index contains overlapping puppeted sprites.  Director's authored
-+			// script expects mouseCast and mouseLine to describe this text field,
-+			// rather than whichever overlapping sprite happens to be topmost.
-+			if (trekTechIndex) {
-+				CastMemberID indexMember = movie->getCastMemberIDByName("BltIndex Window");
-+				uint16 indexSprite = score->getSpriteIdByMemberId(indexMember);
++			// IndexMaker publishes the exact text-field channel through this
++			// global. Use its live cast ID instead of rediscovering the member.
++			if (trekTechIndex && g_lingo->_globalvars.contains("gIndexWinSpr")) {
++				uint16 indexSprite = g_lingo->_globalvars["gIndexWinSpr"].asInt();
 +				if (indexSprite) {
 +					Channel *indexChannel = score->getChannelById(indexSprite);
 +					if (indexChannel->getBbox().contains(pos)) {
-+						d = indexMember.toMultiplex();
++						d = score->getSpriteById(indexSprite)->_castId.toMultiplex();
 +						break;
 +					}
 +				}
@@ -64,19 +93,21 @@ diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo
  			// Trek Tech stamps its topic bars onto the stage, then handles the
  			// complete rows through a global coordinate-zone script. Decorative
  			// sprites over the text must not make mouseCast report a cast member,
-@@ -905,6 +921,17 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
+@@ -905,6 +919,19 @@ Datum Lingo::getTheEntity(int entity, Datum &id, int field) {
  	case kTheMouseLine:
  		{
  			Common::Point pos = g_director->getCurrentWindow()->getMousePos();
 +			const bool trekTechIndex = Common::String(g_director->getGameId()).equals("trektech") &&
 +					g_lingo->_globalvars.contains("gImInIndex") &&
 +					g_lingo->_globalvars["gImInIndex"].asInt();
-+			if (trekTechIndex) {
-+				CastMemberID indexMember = movie->getCastMemberIDByName("BltIndex Window");
-+				uint16 indexSprite = score->getSpriteIdByMemberId(indexMember);
-+				if (indexSprite && score->getChannelById(indexSprite)->getBbox().contains(pos)) {
-+					d = score->getChannelById(indexSprite)->getMouseLine(pos.x, pos.y);
-+					break;
++			if (trekTechIndex && g_lingo->_globalvars.contains("gIndexWinSpr")) {
++				uint16 indexSprite = g_lingo->_globalvars["gIndexWinSpr"].asInt();
++				if (indexSprite) {
++					Channel *indexChannel = score->getChannelById(indexSprite);
++					if (indexChannel->getBbox().contains(pos)) {
++						d = indexChannel->getMouseLine(pos.x, pos.y);
++						break;
++					}
 +				}
 +			}
  			uint16 spriteId = score->getSpriteIDFromPos(pos);
