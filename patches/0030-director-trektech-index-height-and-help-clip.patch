@@ -1,78 +1,76 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH] DIRECTOR: correct Trek Tech Index height and Help clip
+Subject: [PATCH] DIRECTOR: correct Trek Tech Index height and Help rendering
 
-Trek Tech positions its Index highlight with the textHeight of the active
-Index field. ScummVM returned only the one-pixel interline spacing, which
-collapsed all row positions into the first two visible rows. Return the
-complete rendered first-line height for that exact title field.
+IndexMaker reads the BltIndex Window textHeight while constructing the Index,
+before the title sets its Index-active globals. Identify that exact cast member
+and return its complete rendered row height instead of interline spacing.
 
-The title's Help explanation widget is wider than its authored score sprite.
-Use the widget's actual rectangle for that named cast member so its right-hand
-text is not clipped. Both exceptions are limited to Trek Tech.
+The Help explanation widget is wider than its authored score sprite. Extend
+only that widget's render rectangle; do not alter Channel::getBbox(), because
+that geometry also controls hit testing, sprite intersections, dirty-region
+cleanup, and later interface and transit lifecycles.
 ---
- engines/director/castmember/text.cpp | 12 ++++++++++++
- engines/director/channel.cpp         | 16 ++++++++++++++++
- engines/director/channel.h           |  2 +-
- 3 files changed, 28 insertions(+), 1 deletion(-)
+ engines/director/castmember/text.cpp |  8 ++++++++
+ engines/director/window.cpp          | 16 ++++++++++++++++
+ 2 files changed, 24 insertions(+)
 
-diff --git a/engines/director/channel.h b/engines/director/channel.h
---- a/engines/director/channel.h
-+++ b/engines/director/channel.h
-@@ -51,7 +51,7 @@ public:
- 	inline int getHeight() { return _sprite->_height; };
- 	inline Common::Point getPosition() { return _sprite->getPosition(); };
- 	// Return the area of screen to be used for drawing content.
--	inline Common::Rect getBbox(bool unstretched = false) { return _sprite->getBbox(unstretched); };
-+	Common::Rect getBbox(bool unstretched = false);
- 	Common::Rect getRollOverBbox();
- 
- 	bool isStretched();
-diff --git a/engines/director/channel.cpp b/engines/director/channel.cpp
---- a/engines/director/channel.cpp
-+++ b/engines/director/channel.cpp
-@@ -125,6 +125,22 @@ Channel::~Channel() {
- 		delete _sprite;
- }
- 
-+Common::Rect Channel::getBbox(bool unstretched) {
-+	Common::Rect bbox = _sprite->getBbox(unstretched);
-+
-+	// Trek Tech's Help explanation widget is authored wider than its score
-+	// sprite. The widget already has the intended stage rectangle, so use it
-+	// for drawing and hit testing instead of clipping its right-hand text.
-+	if (!unstretched && _widget && _sprite->_cast &&
-+			Common::String(g_director->getGameId()).equals("trektech")) {
-+		CastMemberInfo *castInfo = _sprite->_cast->getInfo();
-+		if (castInfo && castInfo->name.equalsIgnoreCase("TheHelpTextWin"))
-+			bbox = _widget->getDimensions();
-+	}
-+
-+	return bbox;
-+}
-+
- DirectorPlotData Channel::getPlotData() {
- 	int blend = (_sprite->_thickness & kTHasBlend) || _sprite->_ink == kInkTypeBlend ? _sprite->_blendAmount : 0;
- 	DirectorPlotData pd(g_director, _sprite->_spriteType, _sprite->_ink, blend, _sprite->getBackColor(), _sprite->getForeColor());
 diff --git a/engines/director/castmember/text.cpp b/engines/director/castmember/text.cpp
 --- a/engines/director/castmember/text.cpp
 +++ b/engines/director/castmember/text.cpp
-@@ -465,5 +465,17 @@ int TextCastMember::getTextHeight() {
+@@ -457,6 +457,14 @@ int TextCastMember::getLineHeight(int line) {
+ int TextCastMember::getTextHeight() {
  	Graphics::MacText *target = getWidget();
  	if (target) {
-+		// Trek Tech uses textHeight as the complete row height when positioning
-+		// its Index highlight. Returning only the one-pixel interline spacing
-+		// collapses all sixteen highlight positions into the first two rows.
-+		if (Common::String(g_director->getGameId()).equals("trektech") &&
-+				g_lingo->_globalvars.contains("gImInIndex") &&
-+				g_lingo->_globalvars["gImInIndex"].asInt() &&
-+				g_lingo->_globalvars.contains("gIndexWinSpr")) {
-+			Score *score = g_director->getCurrentMovie()->getScore();
-+			Channel *indexChannel = score->getChannelById(g_lingo->_globalvars["gIndexWinSpr"].asInt());
-+			if (indexChannel && indexChannel->_sprite->_cast == this && target->getRowCount() > 0)
-+				return target->getLineHeight(0);
-+		}
++		// IndexMaker asks for this cast's textHeight while it is being
++		// constructed, before its runtime globals or Index-active flag exist.
++		// The original projector returns the complete row height here.
++		CastMemberInfo *castInfo = _cast->getCastMemberInfo(_castId);
++		if (Common::String(g_director->getGameId()).equals("trektech") && castInfo &&
++				castInfo->name.equalsIgnoreCase("BltIndex Window") && target->getRowCount() > 0)
++			return target->getLineHeight(0);
++
  		return target->getLineSpacing();
  	}
  	return _lineSpacing;
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -50,6 +50,15 @@ bool commandsWindowCallback(Graphics::WindowClick click, Common::Event &event, v
+ 	return w->processWMEvent(click, event);
+ }
+ 
++static bool isTrekTechHelpTextChannel(Channel *channel) {
++	if (!channel || !channel->_sprite || !channel->_sprite->_cast ||
++			!Common::String(g_director->getGameId()).equals("trektech"))
++		return false;
++
++	CastMemberInfo *castInfo = channel->_sprite->_cast->getInfo();
++	return castInfo && castInfo->name.equalsIgnoreCase("TheHelpTextWin");
++}
++
+ Window::Window(int id, bool scrollable, bool resizable, bool editable, Graphics::MacWindowManager *wm, DirectorEngine *vm, bool isStage)
+ : Object<Window>("Window") {
+ 	_vm = vm;
+@@ -328,6 +337,11 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 		if (!chan->_needsDraw && !forceRedraw)
+ 			continue;
+ 		Common::Rect bbox = chan->getBbox();
++		// Trek Tech's Help text widget is wider than its score sprite. Extend
++		// only this render pass; the channel's authored geometry remains intact
++		// for hit testing, intersections, and subsequent screen lifecycles.
++		if (isTrekTechHelpTextChannel(chan) && chan->_widget)
++			bbox = chan->_widget->getDimensions();
+ 
+ 		debugC(7, kDebugImages, "Window::render(): drawing channel %d", (int)i);
+ 
+@@ -533,6 +547,8 @@ void Window::reset() {
+ 
+ void Window::inkBlitFrom(Channel *channel, Common::Rect destRect, Graphics::ManagedSurface *blitTo) {
+ 	Common::Rect srcRect = channel->getBbox();
++	if (isTrekTechHelpTextChannel(channel) && channel->_widget)
++		srcRect = channel->_widget->getDimensions();
+ 	destRect.clip(srcRect);
+ 
+ 	DirectorPlotData pd = channel->getPlotData();
 -- 
 2.51.0
