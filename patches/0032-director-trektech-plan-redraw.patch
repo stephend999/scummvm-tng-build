@@ -1,0 +1,66 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: redraw Trek Tech embedded plan accurately
+
+Trek Tech's room plan is a scripted embedded movie on sprite 18.  Its
+exitFrame handler can select a new marker frame while the host sprite itself
+is otherwise unchanged.  Mark the host sprite for drawing when that embedded
+frame changes so the location marker does not remain one node behind.
+
+The plan's embedded channels can also draw outside the parent sprite rectangle
+used for dirty-region cleanup.  Record their actual union for this one title
+and channel so moving the plan for Help and restoring it cannot leave pixels
+from the former position.
+---
+ engines/director/score.cpp  | 11 ++++++++++-
+ engines/director/window.cpp | 14 ++++++++++++++
+ 2 files changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/score.cpp b/engines/director/score.cpp
+--- a/engines/director/score.cpp
++++ b/engines/director/score.cpp
+@@ -946,9 +946,18 @@ void Score::incrementFilmLoops() {
+ 		CastType type = it->_sprite->_cast->_type;
+ 
+ 		if (type == kCastMovie) {
++			MovieCastMember *movieCast = (MovieCastMember *)it->_sprite->_cast;
++			uint16 previousFrame = movieCast->_score ? movieCast->_score->getCurrentFrameNum() : 0;
+ 			// A movie cast member steps its own embedded score like a normal
+ 			// movie, not the film loop flipbook.
+-			((MovieCastMember *)it->_sprite->_cast)->update();
++			movieCast->update();
++			// Trek Tech's scripted room plan changes its embedded frame after
++			// the host score has already evaluated sprite dirtiness.  Propagate
++			// that change to its parent or the marker appears one node late.
++			if (Common::String(g_director->getGameId()).equals("trektech") &&
++					_channels.size() > 18 && it == _channels[18] && movieCast->_score &&
++					movieCast->_score->getCurrentFrameNum() != previousFrame)
++				it->setNeedsDraw();
+ 		} else if (type == kCastFilmLoop && !filmLoopsFrozen) {
+ 			FilmLoopCastMember *fl = ((FilmLoopCastMember *)it->_sprite->_cast);
+ 			if (fl->_score && !fl->_score->_scoreCache.empty()) {
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -342,6 +342,20 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 		// for hit testing, intersections, and subsequent screen lifecycles.
+ 		if (isTrekTechHelpTextChannel(chan) && chan->_widget)
+ 			bbox = chan->_widget->getDimensions();
++		// Trek Tech moves its embedded room plan while Help is displayed.
++		// Some linked-movie layers extend beyond the parent sprite rectangle,
++		// so retain their actual union as the previous rendered area.  The
++		// next position can then clear every pixel from the former one.
++		if (isTrekTech && i == 18 && chan->hasSubChannels()) {
++			Common::Array<Channel> *subchannels = chan->getSubChannels();
++			for (auto &subchannel : *subchannels) {
++				Common::Rect subBbox = subchannel.getBbox();
++				if (bbox.isEmpty())
++					bbox = subBbox;
++				else
++					bbox.extend(subBbox);
++			}
++		}
+ 
+ 		debugC(7, kDebugImages, "Window::render(): drawing channel %d", (int)i);
+ 
+-- 
+2.51.0
