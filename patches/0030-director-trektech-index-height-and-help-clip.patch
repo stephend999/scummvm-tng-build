@@ -10,28 +10,39 @@ only that widget's render rectangle; do not alter Channel::getBbox(), because
 that geometry also controls hit testing, sprite intersections, dirty-region
 cleanup, and later interface and transit lifecycles.
 ---
- engines/director/castmember/text.cpp |  8 ++++++++
+ engines/director/castmember/text.cpp | 15 +++++++++++++++
  engines/director/window.cpp          | 16 ++++++++++++++++
- 2 files changed, 24 insertions(+)
+ 2 files changed, 31 insertions(+)
 
 diff --git a/engines/director/castmember/text.cpp b/engines/director/castmember/text.cpp
 --- a/engines/director/castmember/text.cpp
 +++ b/engines/director/castmember/text.cpp
-@@ -457,6 +457,14 @@ int TextCastMember::getLineHeight(int line) {
+@@ -455,10 +455,25 @@ int TextCastMember::getLineHeight(int line) {
+ 
+ // D4 dictionary book said this is line spacing
  int TextCastMember::getTextHeight() {
++	CastMemberInfo *castInfo = _cast->getCastMemberInfo(_castId);
++	const bool trekIndexField = Common::String(g_director->getGameId()).equals("trektech") &&
++			castInfo && castInfo->name.equalsIgnoreCase("BltIndex Window");
  	Graphics::MacText *target = getWidget();
  	if (target) {
 +		// IndexMaker asks for this cast's textHeight while it is being
 +		// constructed, before its runtime globals or Index-active flag exist.
 +		// The original projector returns the complete row height here.
-+		CastMemberInfo *castInfo = _cast->getCastMemberInfo(_castId);
-+		if (Common::String(g_director->getGameId()).equals("trektech") && castInfo &&
-+				castInfo->name.equalsIgnoreCase("BltIndex Window") && target->getRowCount() > 0)
++		if (trekIndexField && target->getRowCount() > 0)
 +			return target->getLineHeight(0);
 +
  		return target->getLineSpacing();
  	}
++	if (trekIndexField) {
++		Graphics::MacFont macFont(_fontId, _fontSize, _textSlant);
++		const Graphics::Font *font = g_director->_wm->_fontMan->getFont(macFont);
++		if (font)
++			return font->getFontHeight();
++	}
  	return _lineSpacing;
+ }
+ 
 diff --git a/engines/director/window.cpp b/engines/director/window.cpp
 --- a/engines/director/window.cpp
 +++ b/engines/director/window.cpp
