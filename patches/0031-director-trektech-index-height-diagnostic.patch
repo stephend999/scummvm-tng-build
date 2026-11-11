@@ -1,0 +1,93 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace Trek Tech Index height and highlight
+
+This diagnostic patch makes no input or rendering changes. It records the
+exact textHeight data seen when IndexMaker constructs the Index, each vertical
+position requested for the red highlight, and the rectangle actually rendered.
+---
+ engines/director/castmember/text.cpp | 15 +++++++++++++--
+ engines/director/lingo/lingo-the.cpp | 13 +++++++++++++
+ engines/director/window.cpp          |  8 ++++++++
+ 3 files changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/engines/director/castmember/text.cpp b/engines/director/castmember/text.cpp
+--- a/engines/director/castmember/text.cpp
++++ b/engines/director/castmember/text.cpp
+@@ -455,18 +455,29 @@ int TextCastMember::getLineHeight(int line) {
+ 
+ // D4 dictionary book said this is line spacing
+ int TextCastMember::getTextHeight() {
++	CastMemberInfo *castInfo = _cast->getCastMemberInfo(_castId);
++	const bool trekIndexField = Common::String(g_director->getGameId()).equals("trektech") &&
++			castInfo && castInfo->name.equalsIgnoreCase("BltIndex Window");
+ 	Graphics::MacText *target = getWidget();
+ 	if (target) {
+ 		// IndexMaker asks for this cast's textHeight while it is being
+ 		// constructed, before its runtime globals or Index-active flag exist.
+ 		// The original projector returns the complete row height here.
+-		CastMemberInfo *castInfo = _cast->getCastMemberInfo(_castId);
+-		if (Common::String(g_director->getGameId()).equals("trektech") && castInfo &&
+-				castInfo->name.equalsIgnoreCase("BltIndex Window") && target->getRowCount() > 0)
++		if (trekIndexField) {
++			int rows = target->getRowCount();
++			int lineHeight = rows > 0 ? target->getLineHeight(0) : 0;
++			int result = rows > 0 ? lineHeight : target->getLineSpacing();
++			warning("TNG-INDEX-DIAG textHeight widget=1 rows=%d line0=%d fontSize=%u lineSpacing=%d result=%d",
++					rows, lineHeight, _fontSize, target->getLineSpacing(), result);
++		}
++		if (trekIndexField && target->getRowCount() > 0)
+ 			return target->getLineHeight(0);
+ 
+ 		return target->getLineSpacing();
+ 	}
++	if (trekIndexField)
++		warning("TNG-INDEX-DIAG textHeight widget=0 rows=-1 line0=0 fontSize=%u lineSpacing=%d result=%d",
++				_fontSize, _lineSpacing, _lineSpacing);
+ 	return _lineSpacing;
+ }
+ 
+diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
+--- a/engines/director/lingo/lingo-the.cpp
++++ b/engines/director/lingo/lingo-the.cpp
+@@ -2089,8 +2089,21 @@ void Lingo::setTheSprite(Datum &id1, int field, Datum &d) {
+ 		break;
+ 	case kTheLocV:
+ 		if (d.asInt() != channel->getPosition().y) {
++			bool trekIndexHilite = Common::String(g_director->getGameId()).equals("trektech") &&
++					g_lingo->_globalvars.contains("gIndexHiLiteSpr") &&
++					id == g_lingo->_globalvars["gIndexHiLiteSpr"].asInt();
++			Common::Rect oldBbox;
++			int oldLocV = channel->getPosition().y;
++			if (trekIndexHilite)
++				oldBbox = channel->getBbox();
+ 			channel->setPosition(channel->getPosition().x, d.asInt());
+ 			channel->setNeedsDraw();
++			if (trekIndexHilite) {
++				Common::Rect newBbox = channel->getBbox();
++				warning("TNG-INDEX-DIAG hilite request sprite=%d locV=%d->%d bbox=(%d,%d,%d,%d)->(%d,%d,%d,%d)",
++						id, oldLocV, d.asInt(), oldBbox.left, oldBbox.top, oldBbox.right, oldBbox.bottom,
++						newBbox.left, newBbox.top, newBbox.right, newBbox.bottom);
++			}
+ 		}
+ 
+ 		// Based on Director in a Nutshell, page 15
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -342,6 +342,14 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 		// for hit testing, intersections, and subsequent screen lifecycles.
+ 		if (isTrekTechHelpTextChannel(chan) && chan->_widget)
+ 			bbox = chan->_widget->getDimensions();
++		if (isTrekTech && g_lingo->_globalvars.contains("gIndexHiLiteSpr") &&
++				i == (size_t)g_lingo->_globalvars["gIndexHiLiteSpr"].asInt()) {
++			warning("TNG-INDEX-DIAG hilite render sprite=%u bbox=(%d,%d,%d,%d) last=(%d,%d,%d,%d) visible=%d force=%d",
++					(uint)i, bbox.left, bbox.top, bbox.right, bbox.bottom,
++					chan->_lastRenderedBbox.left, chan->_lastRenderedBbox.top,
++					chan->_lastRenderedBbox.right, chan->_lastRenderedBbox.bottom,
++					chan->_visible, forceRedraw);
++		}
+ 
+ 		debugC(7, kDebugImages, "Window::render(): drawing channel %d", (int)i);
+ 
+-- 
+2.51.0
