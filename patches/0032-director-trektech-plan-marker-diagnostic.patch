@@ -1,0 +1,46 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace Trek Tech floor-plan node handoff
+
+Log the shared gNodeNow value and the embedded floor-plan score's current and
+pending frames when the node changes.  This is diagnostic-only: it does not
+alter score timing, rendering, input, or movie state.
+---
+ engines/director/score.cpp | 24 +++++++++++++++++++++++-
+ 1 file changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/score.cpp b/engines/director/score.cpp
+--- a/engines/director/score.cpp
++++ b/engines/director/score.cpp
+@@ -944,9 +944,31 @@ void Score::incrementFilmLoops() {
+ 		CastType type = it->_sprite->_cast->_type;
+ 
+ 		if (type == kCastMovie) {
++			MovieCastMember *movieMember = (MovieCastMember *)it->_sprite->_cast;
++			bool traceTrekPlan = Common::String(g_director->getGameId()).equals("trektech") &&
++					it == getChannelById(18) && g_lingo->_globalvars.contains("gNodeNow");
++			Common::String node;
++			static Common::String lastTrekPlanNode;
++			if (traceTrekPlan)
++				node = g_lingo->_globalvars["gNodeNow"].asString();
++
++			Score *beforeScore = movieMember->_linkedMovie ? movieMember->_linkedMovie->getScore() : nullptr;
++			int beforeCurrent = beforeScore ? beforeScore->getCurrentFrameNum() : -1;
++			int beforePending = beforeScore ? beforeScore->getNextFrame() : -1;
++
+ 			// A movie cast member steps its own embedded score like a normal
+ 			// movie, not the film loop flipbook.
+-			((MovieCastMember *)it->_sprite->_cast)->update();
++			movieMember->update();
++
++			if (traceTrekPlan && node != lastTrekPlanNode) {
++				Score *afterScore = movieMember->_linkedMovie ? movieMember->_linkedMovie->getScore() : nullptr;
++				int afterCurrent = afterScore ? afterScore->getCurrentFrameNum() : -1;
++				int afterPending = afterScore ? afterScore->getNextFrame() : -1;
++				warning("TNG-PLAN node=%s before=%d/%d after=%d/%d frozen=%u",
++						node.c_str(), beforeCurrent, beforePending, afterCurrent, afterPending,
++						movieMember->_embeddedFrozenStates.size());
++				lastTrekPlanNode = node;
++			}
+ 		} else if (type == kCastFilmLoop && !filmLoopsFrozen) {
+ 			FilmLoopCastMember *fl = ((FilmLoopCastMember *)it->_sprite->_cast);
+ 			if (fl->_score && !fl->_score->_scoreCache.empty()) {
