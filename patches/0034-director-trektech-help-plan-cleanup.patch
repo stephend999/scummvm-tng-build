@@ -1,0 +1,41 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: clear Trek Tech Help plan remnant
+
+Trek Tech's Help screen draws its floor plan higher than the normal page
+plan.  The Help exit animation removes its own moving panels but does not
+invalidate the part of that plan which lies outside the normal plan bounds,
+leaving a narrow remnant above the restored page.
+
+At the title's authored Help-exit cleanup frame, clear only the exposed top
+and right strips.  Do not force a stage redraw: the title deliberately keeps
+the underlying page and its trail-drawn interface in place during Help.
+---
+ engines/director/window.cpp | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -397,6 +397,20 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 		chan->_lastTrail = chan->isTrail();
+ 	}
+ 
++	// Trek Tech's Help page stamps its floor plan at (472,303)-(596,440),
++	// while the normal page plan occupies (465,347)-(593,479).  Help exits
++	// through frame 942 without invalidating the pixels of the former which
++	// are outside the latter.  Clear only those exposed strips so the normal
++	// plan and the rest of the persistent page remain untouched.
++	if (isTrekTech && score->getCurrentFrameNum() == 942) {
++		const Common::Rect helpPlanTop(472, 303, 596, 347);
++		const Common::Rect helpPlanRight(593, 347, 596, 440);
++		blitTo->fillRect(helpPlanTop, _stageColor);
++		blitTo->fillRect(helpPlanRight, _stageColor);
++		addDirtyRect(helpPlanTop);
++		addDirtyRect(helpPlanRight);
++	}
++
+ 	Common::List<Common::Rect> &dirtyRects = _window->getDirtyRectList();
+ 
+ 	if (forceRedraw) {
+-- 
+2.51.0
