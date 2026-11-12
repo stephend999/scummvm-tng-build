@@ -1,0 +1,69 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace Trek Tech plan marker handoff
+
+Diagnostic only.  Record the Trek Tech floor-plan marker position after the
+embedded score advances and again when its live channels are copied for host
+composition.  This distinguishes stale embedded channel state from a missed
+parent redraw without changing timing, rendering, input, or movie state.
+---
+ engines/director/castmember/movie.cpp | 18 ++++++++++++++++++
+ engines/director/score.cpp            | 15 ++++++++++++++-
+ 2 files changed, 32 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/castmember/movie.cpp b/engines/director/castmember/movie.cpp
+--- a/engines/director/castmember/movie.cpp
++++ b/engines/director/castmember/movie.cpp
+@@ -108,6 +108,24 @@ Common::Array<Channel> *MovieCastMember::getSubChannels(Common::Rect &bbox, uint
+ 			src._startPoint.y = (src._startPoint.y - _initialRect.top) + bbox.top;
+ 		}
+ 
++		if (Common::String(g_director->getGameId()).equals("trektech") && i == 10) {
++			Common::String linkedPath = _cast->getLinkedPath(_castId);
++			if (linkedPath.contains("PLAN_M")) {
++				static Common::String lastPlanComposite;
++				Common::String state = Common::String::format("%s:%u:%d:%d:%d:%d",
++						linkedPath.c_str(), _score->getCurrentFrameNum(),
++						chanSprite->_startPoint.x, chanSprite->_startPoint.y,
++						src._startPoint.x, src._startPoint.y);
++				if (state != lastPlanComposite) {
++					warning("TNG-PLAN-COMPOSITE path=%s frame=%u live=%d,%d copied=%d,%d host=%d,%d,%d,%d",
++							linkedPath.c_str(), _score->getCurrentFrameNum(),
++							chanSprite->_startPoint.x, chanSprite->_startPoint.y,
++							src._startPoint.x, src._startPoint.y, PRINT_RECT(bbox));
++					lastPlanComposite = state;
++				}
++			}
++		}
++
+ 		Channel chan(nullptr, &src);
+ 		_subchannels.push_back(chan);
+ 	}
+diff --git a/engines/director/score.cpp b/engines/director/score.cpp
+--- a/engines/director/score.cpp
++++ b/engines/director/score.cpp
+@@ -944,9 +944,22 @@ void Score::incrementFilmLoops() {
+ 		CastType type = it->_sprite->_cast->_type;
+ 
+ 		if (type == kCastMovie) {
++			MovieCastMember *movieMember = (MovieCastMember *)it->_sprite->_cast;
++			Score *embeddedScore = movieMember->_linkedMovie ? movieMember->_linkedMovie->getScore() : nullptr;
++			uint16 beforeFrame = embeddedScore ? embeddedScore->getCurrentFrameNum() : 0;
+ 			// A movie cast member steps its own embedded score like a normal
+ 			// movie, not the film loop flipbook.
+-			((MovieCastMember *)it->_sprite->_cast)->update();
++			movieMember->update();
++
++			if (Common::String(g_director->getGameId()).equals("trektech") &&
++					it == getChannelById(18) && embeddedScore &&
++					embeddedScore->getCurrentFrameNum() != beforeFrame) {
++				Channel *marker = embeddedScore->getChannelById(10);
++				Common::Point markerPos = marker ? marker->getPosition() : Common::Point(-1, -1);
++				warning("TNG-PLAN-HANDOFF before=%u after=%u marker=%d,%d parentNeedsDraw=%d parent=%d,%d,%d,%d",
++						beforeFrame, embeddedScore->getCurrentFrameNum(), markerPos.x, markerPos.y,
++						it->_needsDraw, PRINT_RECT(it->getBbox()));
++			}
+ 		} else if (type == kCastFilmLoop && !filmLoopsFrozen) {
+ 			FilmLoopCastMember *fl = ((FilmLoopCastMember *)it->_sprite->_cast);
+ 			if (fl->_score && !fl->_score->_scoreCache.empty()) {
+-- 
+2.51.0
