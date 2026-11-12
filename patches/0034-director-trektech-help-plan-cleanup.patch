@@ -6,36 +6,62 @@ plan.  The Help exit animation removes its own moving panels but does not
 invalidate the part of that plan which lies outside the normal plan bounds,
 leaving a narrow remnant above the restored page.
 
-At the title's authored Help-exit cleanup frame, clear only the exposed top
-and right strips.  Do not force a stage redraw: the title deliberately keeps
-the underlying page and its trail-drawn interface in place during Help.
+The score performs additional page restoration after its authored Help-exit
+frame.  Arm cleanup there, then wait until the returned page has no pending
+channel redraws before clearing only the exposed top and right strips.  Do
+not force a stage redraw: the title deliberately keeps the underlying page
+and its trail-drawn interface in place during Help.
 ---
- engines/director/window.cpp | 14 ++++++++++++++
- 1 file changed, 14 insertions(+)
+ engines/director/window.cpp | 17 +++++++++++++++++
+ engines/director/window.h   |  1 +
+ 2 files changed, 18 insertions(+)
 
 diff --git a/engines/director/window.cpp b/engines/director/window.cpp
 --- a/engines/director/window.cpp
 +++ b/engines/director/window.cpp
-@@ -397,6 +397,20 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+@@ -64,6 +64,7 @@ Window::Window(int id, bool scrollable, bool resizable, bool editable, Graphics
+ 	_vm = vm;
+ 	_wm = wm;
+ 	_isStage = isStage;
++	_trekHelpPlanCleanupPending = false;
+ 	_stageColor = _wm->_colorBlack;
+ 	_puppetTransition = nullptr;
+ 	_soundManager = new DirectorSound(this);
+@@ -397,8 +398,24 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
  		chan->_lastTrail = chan->isTrail();
  	}
  
+ 	Common::List<Common::Rect> &dirtyRects = _window->getDirtyRectList();
+ 
 +	// Trek Tech's Help page stamps its floor plan at (472,303)-(596,440),
-+	// while the normal page plan occupies (465,347)-(593,479).  Help exits
-+	// through frame 942 without invalidating the pixels of the former which
-+	// are outside the latter.  Clear only those exposed strips so the normal
-+	// plan and the rest of the persistent page remain untouched.
++	// while the normal page plan occupies (465,347)-(593,479).  Frame 942
++	// begins the exit, but the score restores more page content afterwards.
++	// Defer cleanup until the returned page reaches its first settled render.
 +	if (isTrekTech && score->getCurrentFrameNum() == 942) {
++		_trekHelpPlanCleanupPending = true;
++	} else if (isTrekTech && _trekHelpPlanCleanupPending && dirtyRects.empty()) {
 +		const Common::Rect helpPlanTop(472, 303, 596, 347);
 +		const Common::Rect helpPlanRight(593, 347, 596, 440);
 +		blitTo->fillRect(helpPlanTop, _stageColor);
 +		blitTo->fillRect(helpPlanRight, _stageColor);
 +		addDirtyRect(helpPlanTop);
 +		addDirtyRect(helpPlanRight);
++		_trekHelpPlanCleanupPending = false;
 +	}
 +
- 	Common::List<Common::Rect> &dirtyRects = _window->getDirtyRectList();
- 
  	if (forceRedraw) {
+ 		_window->markAllDirty();
+ 	} else {
+diff --git a/engines/director/window.h b/engines/director/window.h
+--- a/engines/director/window.h
++++ b/engines/director/window.h
+@@ -253,6 +253,7 @@ private:
+ 	// have no live sprites after menu construction and must survive the
+ 	// overlapping frame sprite's later QTVR redraw.
+ 	Common::Rect _trekMenuTrailBounds;
++	bool _trekHelpPlanCleanupPending;
+ 	uint32 _stageColor;
+ 
+ 	DirectorEngine *_vm;
 -- 
 2.51.0
