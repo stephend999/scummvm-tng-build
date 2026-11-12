@@ -74,6 +74,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0032-director-trektech-plan-handoff-diagnostic.patch'
           Apply-RepositoryPatch 'patches/0033-director-qtvr-report-current-node.patch'
           Apply-RepositoryPatch 'patches/0034-director-trektech-help-plan-cleanup.patch'
+          Apply-RepositoryPatch 'patches/0035-director-trektech-help-plan-owner-diagnostic.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'

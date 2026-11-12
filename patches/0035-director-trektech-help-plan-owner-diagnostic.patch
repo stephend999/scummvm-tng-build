@@ -1,0 +1,79 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace Trek Tech Help plan pixel owners
+
+Diagnostic only.  For twelve render passes beginning at the authored Help-exit
+frame, report every score channel and dirty rectangle intersecting the union of
+the raised Help plan and the normal page plan.  This identifies the sprite or
+trail that restores the remnant without changing rendering, timing, input, or
+movie state.
+---
+ engines/director/window.cpp | 36 ++++++++++++++++++++++++++++++++++++
+ engines/director/window.h   |  1 +
+ 2 files changed, 37 insertions(+)
+
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -65,6 +65,7 @@ Window::Window(int id, bool scrollable, bool resizable, bool editable, Graphics
+ 	_wm = wm;
+ 	_isStage = isStage;
+ 	_trekHelpPlanCleanupPending = false;
++	_trekHelpPlanTraceFrames = 0;
+ 	_stageColor = _wm->_colorBlack;
+ 	_puppetTransition = nullptr;
+ 	_soundManager = new DirectorSound(this);
+@@ -398,6 +399,41 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 
+ 	Common::List<Common::Rect> &dirtyRects = _window->getDirtyRectList();
+ 
++	if (isTrekTech && score->getCurrentFrameNum() == 942)
++		_trekHelpPlanTraceFrames = 12;
++
++	if (isTrekTech && _trekHelpPlanTraceFrames > 0) {
++		const Common::Rect planArea(465, 303, 596, 480);
++		warning("TNG-HELP-PLAN-TRACE render frame=%u remaining=%d force=%d dirty=%u cleanupPending=%d",
++				score->getCurrentFrameNum(), _trekHelpPlanTraceFrames, forceRedraw,
++				(uint)dirtyRects.size(), _trekHelpPlanCleanupPending);
++
++		for (size_t i = 0; i < score->_channels.size(); i++) {
++			Channel *chan = score->_channels[i];
++			if (!chan || !chan->_sprite)
++				continue;
++
++			const Common::Rect bbox = chan->getBbox();
++			const Common::Rect lastBbox = chan->_lastRenderedBbox;
++			if (!bbox.intersects(planArea) && !lastBbox.intersects(planArea))
++				continue;
++
++			CastMemberInfo *castInfo = chan->_sprite->_cast ? chan->_sprite->_cast->getInfo() : nullptr;
++			warning("TNG-HELP-PLAN-TRACE channel=%u cast=%s name=%s bbox=%d,%d,%d,%d last=%d,%d,%d,%d needs=%d trail=%d lastTrail=%d type=%d ink=%d",
++					(uint)i, chan->_sprite->_castId.asString().c_str(),
++					castInfo ? castInfo->name.c_str() : "",
++					PRINT_RECT(bbox), PRINT_RECT(lastBbox), chan->_needsDraw,
++					chan->isTrail(), chan->_lastTrail, chan->_sprite->_spriteType,
++					chan->_sprite->_ink);
++		}
++
++		for (Common::List<Common::Rect>::const_iterator it = dirtyRects.begin(); it != dirtyRects.end(); ++it) {
++			if (it->intersects(planArea))
++				warning("TNG-HELP-PLAN-TRACE dirtyRect=%d,%d,%d,%d", PRINT_RECT(*it));
++		}
++		_trekHelpPlanTraceFrames--;
++	}
++
+ 	// Trek Tech's Help page stamps its floor plan at (472,303)-(596,440),
+ 	// while the normal page plan occupies (465,347)-(593,479).  Frame 942
+ 	// begins the exit, but the score restores more page content afterwards.
+diff --git a/engines/director/window.h b/engines/director/window.h
+--- a/engines/director/window.h
++++ b/engines/director/window.h
+@@ -254,6 +254,7 @@ private:
+ 	// overlapping frame sprite's later QTVR redraw.
+ 	Common::Rect _trekMenuTrailBounds;
+ 	bool _trekHelpPlanCleanupPending;
++	int _trekHelpPlanTraceFrames;
+ 	uint32 _stageColor;
+ 
+ 	DirectorEngine *_vm;
+-- 
+2.51.0
