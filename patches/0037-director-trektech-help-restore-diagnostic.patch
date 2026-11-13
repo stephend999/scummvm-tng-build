@@ -1,0 +1,142 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace late Help-plan restoration
+
+Diagnostic only.  The Help floor-plan remnant is absent from the Director
+stage surface immediately after Help exits, but appears in ScummVM's saved
+output and returns after Index restores the Bridge page.  Beginning at the
+authored Help-exit frame, hash the exact visible remnant strip in both the
+stage surface and the Mac window-manager composite.  Report only changes so
+the first layer and score frame that restores the pixels can be identified
+without altering drawing, input, timing, or gameplay state.
+---
+ engines/director/window.cpp | 56 +++++++++++++++++++++++++++++++++++++
+ engines/director/window.h   |  6 ++++
+ 2 files changed, 62 insertions(+)
+
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -57,16 +57,42 @@ static bool isTrekTechHelpTextChannel(Channel *channel) {
+ 
+ 	CastMemberInfo *castInfo = channel->_sprite->_cast->getInfo();
+ 	return castInfo && castInfo->name.equalsIgnoreCase("TheHelpTextWin");
+ }
+ 
++static uint32 hashTrekHelpPlanRemnant(Graphics::ManagedSurface *surface, uint32 stageColor,
++		uint32 &nonStagePixels) {
++	if (!surface) {
++		nonStagePixels = 0;
++		return 0;
++	}
++
++	Common::Rect area(472, 334, 596, 347);
++	area.clip(surface->getBounds());
++	uint32 hash = 2166136261U;
++	nonStagePixels = 0;
++	for (int y = area.top; y < area.bottom; ++y) {
++		for (int x = area.left; x < area.right; ++x) {
++			const uint32 pixel = surface->getPixel(x, y);
++			nonStagePixels += pixel != stageColor;
++			hash = (hash ^ pixel) * 16777619U;
++		}
++	}
++	return hash;
++}
++
+ Window::Window(int id, bool scrollable, bool resizable, bool editable, Graphics::MacWindowManager *wm, DirectorEngine *vm, bool isStage)
+ : Object<Window>("Window") {
+ 	_vm = vm;
+ 	_wm = wm;
+ 	_isStage = isStage;
+ 	_trekHelpPlanCleanupPending = false;
++	_trekHelpPlanTraceActive = false;
++	_trekHelpPlanStageHashValid = false;
++	_trekHelpPlanCompositeHashValid = false;
++	_trekHelpPlanStageHash = 0;
++	_trekHelpPlanCompositeHash = 0;
+ 	_stageColor = _wm->_colorBlack;
+ 	_puppetTransition = nullptr;
+ 	_soundManager = new DirectorSound(this);
+ 	_lingoState = new LingoState;
+ 	_lingoPlayState = nullptr;
+@@ -92,10 +118,30 @@ Window::Window(int id, bool scrollable, bool resizable, bool editable, Graphics:
+ 	_window->setCallback(commandsWindowCallback, this);
+ 
+ 	updateBorderType();
+ }
+ 
++void Window::traceTrekHelpPlanSurfaces(uint frameNum, Graphics::ManagedSurface *stageSurface) {
++	uint32 nonStagePixels = 0;
++	const uint32 stageHash = hashTrekHelpPlanRemnant(stageSurface, _stageColor, nonStagePixels);
++	if (!_trekHelpPlanStageHashValid || stageHash != _trekHelpPlanStageHash) {
++		warning("TNG-HELP-RESTORE layer=stage frame=%u hash=%08x nonStage=%u surface=%p",
++				frameNum, stageHash, nonStagePixels, (void *)stageSurface);
++		_trekHelpPlanStageHash = stageHash;
++		_trekHelpPlanStageHashValid = true;
++	}
++
++	Graphics::ManagedSurface *compositeSurface = _wm->_screen;
++	const uint32 compositeHash = hashTrekHelpPlanRemnant(compositeSurface, _stageColor, nonStagePixels);
++	if (!_trekHelpPlanCompositeHashValid || compositeHash != _trekHelpPlanCompositeHash) {
++		warning("TNG-HELP-RESTORE layer=composite frame=%u hash=%08x nonStage=%u surface=%p",
++				frameNum, compositeHash, nonStagePixels, (void *)compositeSurface);
++		_trekHelpPlanCompositeHash = compositeHash;
++		_trekHelpPlanCompositeHashValid = true;
++	}
++}
++
+ Window::~Window() {
+ 	delete _lingoState;
+ 	if (_lingoPlayState)
+ 		delete _lingoPlayState;
+ 	delete _soundManager;
+@@ -400,16 +446,26 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 	// although the persistent window surface is already correct.  Frame 942
+ 	// begins the exit; wait for the returned page to settle, then refresh the
+ 	// display from that surface without redrawing its historical trail sprites.
+ 	if (isTrekTech && score->getCurrentFrameNum() == 942) {
+ 		_trekHelpPlanCleanupPending = true;
++		if (!_trekHelpPlanTraceActive) {
++			_trekHelpPlanTraceActive = true;
++			_trekHelpPlanStageHashValid = false;
++			_trekHelpPlanCompositeHashValid = false;
++			warning("TNG-HELP-RESTORE trace-start frame=%u area=472,334,596,347",
++					score->getCurrentFrameNum());
++		}
+ 	} else if (isTrekTech && _trekHelpPlanCleanupPending && dirtyRects.empty()) {
+ 		_wm->setFullRefresh(true);
+ 		_window->setContentDirty(true);
+ 		_trekHelpPlanCleanupPending = false;
+ 	}
+ 
++	if (isTrekTech && _trekHelpPlanTraceActive)
++		traceTrekHelpPlanSurfaces(score->getCurrentFrameNum(), blitTo);
++
+ 	if (forceRedraw) {
+ 		_window->markAllDirty();
+ 	} else {
+ 		if (dirtyRects.size() == 0 && _currentMovie->_videoPlayback == false) {
+ 			if (g_director->_debugDraw & kDebugDrawFrame) {
+diff --git a/engines/director/window.h b/engines/director/window.h
+--- a/engines/director/window.h
++++ b/engines/director/window.h
+@@ -253,11 +253,17 @@ private:
+ 	// Historical trail pixels stamped by Trek Tech's right-hand menu.  They
+ 	// have no live sprites after menu construction and must survive the
+ 	// overlapping frame sprite's later QTVR redraw.
+ 	Common::Rect _trekMenuTrailBounds;
+ 	bool _trekHelpPlanCleanupPending;
++	bool _trekHelpPlanTraceActive;
++	bool _trekHelpPlanStageHashValid;
++	bool _trekHelpPlanCompositeHashValid;
++	uint32 _trekHelpPlanStageHash;
++	uint32 _trekHelpPlanCompositeHash;
+ 	uint32 _stageColor;
++	void traceTrekHelpPlanSurfaces(uint frameNum, Graphics::ManagedSurface *stageSurface);
+ 
+ 	DirectorEngine *_vm;
+ 	DirectorSound *_soundManager;
+ 	LingoState *_lingoState;
+ 	Common::Array<LingoState *> _frozenLingoStates;
+-- 
+2.51.0
