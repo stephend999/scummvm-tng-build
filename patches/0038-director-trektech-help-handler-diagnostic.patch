@@ -1,5 +1,5 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH] DIRECTOR: clear Trek Tech Help plan on return
+Subject: [PATCH] DIRECTOR: defer Trek Tech Help plan cleanup
 
 Trek Tech uses sprite 20 for the raised Help floor plan, then immediately
 reuses that channel as a one-pixel trail sprite when returning to the page.
@@ -7,17 +7,22 @@ The old Help rectangle is therefore lost before it can be invalidated, and
 its pixels remain above the restored page plan.
 
 Remember HELP20's authored rectangle when goHelp completes.  When goBackHelp
-finishes, recompose only that rectangle through the restored non-trail plan
-channel.  This clears the abandoned Help pixels while preserving the title's
-intentional menu trails and avoiding a full-screen redraw.
+finishes, queue that rectangle on the Director window without drawing during
+Lingo stack unwinding.  The next ordinary render pass recomposes only the
+saved rectangle through the restored non-trail plan channel.  This preserves
+the title's intentional menu trails and avoids both re-entrant rendering and
+a full-screen redraw.
 ---
- engines/director/lingo/lingo-code.cpp | 42 +++++++++++++++++++++++++++++
- 1 file changed, 42 insertions(+)
+ engines/director/lingo/lingo-code.cpp | 40 +++++++++++++++++++++++++++
+ engines/director/window.cpp           | 11 ++++++++
+ engines/director/window.h             |  2 ++
+ 3 files changed, 53 insertions(+)
 
 diff --git a/engines/director/lingo/lingo-code.cpp b/engines/director/lingo/lingo-code.cpp
+index 4c69e4c2..e9293b02 100644
 --- a/engines/director/lingo/lingo-code.cpp
 +++ b/engines/director/lingo/lingo-code.cpp
-@@ -60,6 +60,42 @@
+@@ -60,6 +60,40 @@
  
  namespace Director {
  
@@ -41,26 +46,24 @@ diff --git a/engines/director/lingo/lingo-code.cpp b/engines/director/lingo/ling
 +	if (!movie || !movie->getScore())
 +		return;
 +
-+	Score *score = movie->getScore();
 +	if (helpEntered) {
-+		Channel *helpPlan = score->getChannelById(20);
++		Channel *helpPlan = movie->getScore()->getChannelById(20);
 +		CastMemberInfo *castInfo = helpPlan && helpPlan->_sprite && helpPlan->_sprite->_cast ? helpPlan->_sprite->_cast->getInfo() : nullptr;
 +		if (castInfo && castInfo->name.equalsIgnoreCase("HELP20"))
 +			g_trekHelpPlanRect = helpPlan->getBbox();
 +		return;
 +	}
 +
-+	Channel *restoredPlan = score->getChannelById(18);
 +	Window *window = g_director->getCurrentWindow();
-+	if (!g_trekHelpPlanRect.isEmpty() && window && restoredPlan && restoredPlan->_sprite && !restoredPlan->isTrail())
-+		window->renderChannel(restoredPlan, g_trekHelpPlanRect);
++	if (!g_trekHelpPlanRect.isEmpty() && window)
++		window->scheduleTrekHelpPlanCleanup(g_trekHelpPlanRect);
 +	g_trekHelpPlanRect = Common::Rect();
 +}
 +
  static const struct FuncDescr {
  	const inst func;
  	const char *name;
-@@ -379,6 +415,9 @@ void Lingo::popContext(bool aborting) {
+@@ -379,6 +413,9 @@ void Lingo::popContext(bool aborting) {
  
  	// Undo the pushContext window switch.
  	Window *retWindow = fp->retWindow;
@@ -70,7 +73,7 @@ diff --git a/engines/director/lingo/lingo-code.cpp b/engines/director/lingo/ling
  
  	delete fp;
  
-@@ -1645,6 +1684,9 @@ void LC::c_callfunc() {
+@@ -1645,6 +1682,9 @@ void LC::c_callfunc() {
  }
  
  void LC::call(const Common::String &name, int nargs, bool allowRetVal) {
@@ -79,6 +82,48 @@ diff --git a/engines/director/lingo/lingo-code.cpp b/engines/director/lingo/ling
 +
  	if (debugChannelSet(3, kDebugLingoExec))
  		g_lingo->printArgs(name.c_str(), nargs, "call:");
+ 
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+index f393689e..d2aea87b 100644
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -447,6 +447,17 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 		chan->_lastTrail = chan->isTrail();
+ 	}
+ 
++	// Trek Tech reuses Help's raised floor-plan channel as a one-pixel trail
++	// sprite before the old rectangle can be invalidated.  Recompose the saved
++	// rectangle only after Lingo has returned and normal rendering is underway.
++	if (isTrekTech && !_trekHelpPlanCleanupRect.isEmpty()) {
++		Common::Rect cleanupRect = _trekHelpPlanCleanupRect;
++		_trekHelpPlanCleanupRect = Common::Rect();
++		Channel *restoredPlan = score->getChannelById(18);
++		if (restoredPlan && restoredPlan->_sprite && !restoredPlan->isTrail())
++			renderChannel(restoredPlan, cleanupRect, blitTo);
++	}
++
+ 	Common::List<Common::Rect> &dirtyRects = _window->getDirtyRectList();
+ 
+ 	// Trek Tech's Help exit leaves stale pixels in the presentation buffer,
+diff --git a/engines/director/window.h b/engines/director/window.h
+index 3c371d48..abcc6495 100644
+--- a/engines/director/window.h
++++ b/engines/director/window.h
+@@ -157,6 +157,7 @@ public:
+ 	void setTitleVisible(bool titleVisible);
+ 	Graphics::ManagedSurface *getSurface();
+ 	void addDirtyRect(const Common::Rect &r);
++	void scheduleTrekHelpPlanCleanup(const Common::Rect &r) { _trekHelpPlanCleanupRect = r; }
+ 	void resizeInner(int w, int h);
+ 	int getId();
+ 	void setDirty(bool dirty);
+@@ -255,6 +256,7 @@ private:
+ 	// overlapping frame sprite's later QTVR redraw.
+ 	Common::Rect _trekMenuTrailBounds;
+ 	bool _trekHelpPlanCleanupPending;
++	Common::Rect _trekHelpPlanCleanupRect;
+ 	uint32 _stageColor;
+ 	void traceTrekHelpPlanSurfaces(uint frameNum, Graphics::ManagedSurface *stageSurface);
  
 -- 
 2.51.0
