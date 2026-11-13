@@ -1,0 +1,73 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace Help plan surface pixels
+
+Diagnostic only.  Count and hash non-background pixels in the exact cleanup
+rectangle before and after clearing, and on subsequent render passes.  Also
+report whether the render target is the persistent MacWindow surface.  This
+distinguishes a wrong surface from pixels restored after cleanup or incorrect
+rectangle bounds without changing rendering, timing, input, or movie state.
+---
+ engines/director/window.cpp | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -60,6 +60,23 @@ static bool isTrekTechHelpTextChannel(Channel *channel) {
+ 	return castInfo && castInfo->name.equalsIgnoreCase("TheHelpTextWin");
+ }
+ 
++static void traceTrekHelpPlanPixels(const char *phase, Graphics::ManagedSurface *surface,
++		const Common::Rect &requestedArea, uint32 stageColor) {
++	Common::Rect area = requestedArea;
++	area.clip(surface->getBounds());
++	uint32 nonStagePixels = 0;
++	uint32 hash = 2166136261U;
++	for (int y = area.top; y < area.bottom; ++y) {
++		for (int x = area.left; x < area.right; ++x) {
++			const uint32 pixel = surface->getPixel(x, y);
++			nonStagePixels += pixel != stageColor;
++			hash = (hash ^ pixel) * 16777619U;
++		}
++	}
++	warning("TNG-HELP-PLAN-PIXELS phase=%s surface=%p area=%d,%d,%d,%d nonStage=%u hash=%08x stage=%08x",
++			phase, (void *)surface, PRINT_RECT(area), nonStagePixels, hash, stageColor);
++}
++
+ Window::Window(int id, bool scrollable, bool resizable, bool editable, Graphics::MacWindowManager *wm, DirectorEngine *vm, bool isStage)
+ : Object<Window>("Window") {
+ 	_vm = vm;
+@@ -405,8 +422,15 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 	if (isTrekTech && _trekHelpPlanTraceFrames > 0) {
+ 		const Common::Rect planArea(465, 303, 596, 480);
+ 		warning("TNG-HELP-PLAN-TRACE render frame=%u remaining=%d force=%d dirty=%u cleanupPending=%d",
+ 				score->getCurrentFrameNum(), _trekHelpPlanTraceFrames, forceRedraw,
+ 				(uint)dirtyRects.size(), _trekHelpPlanCleanupPending);
++		Graphics::ManagedSurface *windowSurface = _window->getSurface();
++		warning("TNG-HELP-PLAN-PIXELS targets blit=%p window=%p same=%d",
++				(void *)blitTo, (void *)windowSurface, blitTo == windowSurface);
++		traceTrekHelpPlanPixels("render-clear-area", blitTo,
++				Common::Rect(472, 303, 596, 347), _stageColor);
++		traceTrekHelpPlanPixels("render-full-top", blitTo,
++				Common::Rect(465, 303, 596, 347), _stageColor);
+ 
+ 		for (size_t i = 0; i < score->_channels.size(); i++) {
+ 			Channel *chan = score->_channels[i];
+@@ -449,8 +473,15 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 	} else if (isTrekTech && _trekHelpPlanCleanupPending && dirtyRects.empty()) {
+ 		const Common::Rect helpPlanTop(472, 303, 596, 347);
+ 		const Common::Rect helpPlanRight(593, 347, 596, 440);
++		Graphics::ManagedSurface *windowSurface = _window->getSurface();
++		traceTrekHelpPlanPixels("cleanup-before-blit", blitTo, helpPlanTop, _stageColor);
++		if (windowSurface != blitTo)
++			traceTrekHelpPlanPixels("cleanup-before-window", windowSurface, helpPlanTop, _stageColor);
+ 		blitTo->fillRect(helpPlanTop, _stageColor);
+ 		blitTo->fillRect(helpPlanRight, _stageColor);
++		traceTrekHelpPlanPixels("cleanup-after-blit", blitTo, helpPlanTop, _stageColor);
++		if (windowSurface != blitTo)
++			traceTrekHelpPlanPixels("cleanup-after-window", windowSurface, helpPlanTop, _stageColor);
+ 		addDirtyRect(helpPlanTop);
+ 		addDirtyRect(helpPlanRight);
+ 		_trekHelpPlanCleanupPending = false;
+-- 
+2.51.0
