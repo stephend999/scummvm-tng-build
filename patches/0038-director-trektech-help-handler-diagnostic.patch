@@ -3,22 +3,23 @@ Subject: [PATCH] DIRECTOR: trace Trek Tech Help handler plan geometry
 
 Diagnostic only.  The earlier cleanup was armed from score frame 942, but
 the title's actual Help lifecycle is controlled by the goHelp and goBackHelp
-Lingo handlers.  Record sprite 18's current and last-rendered rectangles at
-the call and return of those handlers so the exact abandoned Help-plan strip
-can be identified without changing drawing, input, timing, or gameplay.
+Lingo handlers.  Record sprites 18 (plan) and 24 (navigation) at the call and
+return of those handlers.  This distinguishes the repurposed Help text sprite
+from the raised navigation map without changing drawing, input, timing, or
+gameplay.
 ---
- engines/director/lingo/lingo-code.cpp | 38 ++++++++++++++++++++++++++
- 1 file changed, 38 insertions(+)
+ engines/director/lingo/lingo-code.cpp | 39 +++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
 
 diff --git a/engines/director/lingo/lingo-code.cpp b/engines/director/lingo/lingo-code.cpp
 --- a/engines/director/lingo/lingo-code.cpp
 +++ b/engines/director/lingo/lingo-code.cpp
-@@ -60,6 +60,36 @@
+@@ -60,6 +60,39 @@
  
  namespace Director {
  
-+static Common::Rect g_trekHelpPlanBefore;
-+static Common::Rect g_trekHelpPlanInHelp;
++static Common::Rect g_trekHelpSpriteBefore[2];
++static Common::Rect g_trekHelpSpriteInHelp[2];
 +
 +static void traceTrekHelpPlanHandler(const char *phase, const Common::String &handler) {
 +	if (strcmp(g_director->getGameId(), "trektech") != 0)
@@ -29,28 +30,31 @@ diff --git a/engines/director/lingo/lingo-code.cpp b/engines/director/lingo/ling
 +		return;
 +
 +	Score *score = movie->getScore();
-+	Channel *plan = score->getChannelById(18);
-+	if (!plan || !plan->_sprite)
-+		return;
++	const int spriteIds[] = { 18, 24 };
++	for (uint i = 0; i < ARRAYSIZE(spriteIds); i++) {
++		Channel *channel = score->getChannelById(spriteIds[i]);
++		if (!channel || !channel->_sprite)
++			continue;
 +
-+	Common::Rect bbox = plan->getBbox();
-+	Common::Rect last = plan->_lastRenderedBbox;
-+	if (handler.equalsIgnoreCase("goHelp") && !strcmp(phase, "call"))
-+		g_trekHelpPlanBefore = bbox;
-+	else if (handler.equalsIgnoreCase("goHelp") && !strcmp(phase, "return"))
-+		g_trekHelpPlanInHelp = bbox;
++		Common::Rect bbox = channel->getBbox();
++		Common::Rect last = channel->_lastRenderedBbox;
++		if (handler.equalsIgnoreCase("goHelp") && !strcmp(phase, "call"))
++			g_trekHelpSpriteBefore[i] = bbox;
++		else if (handler.equalsIgnoreCase("goHelp") && !strcmp(phase, "return"))
++			g_trekHelpSpriteInHelp[i] = bbox;
 +
-+	warning("TNG-HELP-HANDLER phase=%s handler=%s frame=%u bbox=%d,%d,%d,%d last=%d,%d,%d,%d before=%d,%d,%d,%d help=%d,%d,%d,%d puppet=%d visible=%d needs=%d trail=%d",
-+			phase, handler.c_str(), score->getCurrentFrameNum(),
-+			PRINT_RECT(bbox), PRINT_RECT(last), PRINT_RECT(g_trekHelpPlanBefore),
-+			PRINT_RECT(g_trekHelpPlanInHelp), plan->_sprite->_puppet,
-+			plan->_visible, plan->_needsDraw, plan->isTrail());
++		warning("TNG-HELP-HANDLER sprite=%d phase=%s handler=%s frame=%u bbox=%d,%d,%d,%d last=%d,%d,%d,%d before=%d,%d,%d,%d help=%d,%d,%d,%d puppet=%d visible=%d needs=%d trail=%d",
++				spriteIds[i], phase, handler.c_str(), score->getCurrentFrameNum(),
++				PRINT_RECT(bbox), PRINT_RECT(last), PRINT_RECT(g_trekHelpSpriteBefore[i]),
++				PRINT_RECT(g_trekHelpSpriteInHelp[i]), channel->_sprite->_puppet,
++				channel->_visible, channel->_needsDraw, channel->isTrail());
++	}
 +}
 +
  static const struct FuncDescr {
  	const inst func;
  	const char *name;
-@@ -379,6 +409,9 @@ void Lingo::popContext(bool aborting) {
+@@ -379,6 +412,9 @@ void Lingo::popContext(bool aborting) {
  
  	// Undo the pushContext window switch.
  	Window *retWindow = fp->retWindow;
@@ -60,7 +64,7 @@ diff --git a/engines/director/lingo/lingo-code.cpp b/engines/director/lingo/ling
  
  	delete fp;
  
-@@ -1645,6 +1678,9 @@ void LC::c_callfunc() {
+@@ -1645,6 +1681,9 @@ void LC::c_callfunc() {
  }
  
  void LC::call(const Common::String &name, int nargs, bool allowRetVal) {
