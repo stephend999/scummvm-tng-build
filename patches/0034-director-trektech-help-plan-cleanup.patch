@@ -1,20 +1,21 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH] DIRECTOR: clear Trek Tech Help plan remnant
+Subject: [PATCH] DIRECTOR: refresh Trek Tech after Help exit
 
 Trek Tech's Help screen draws its floor plan higher than the normal page
 plan.  The Help exit animation removes its own moving panels but does not
 invalidate the part of that plan which lies outside the normal plan bounds,
 leaving a narrow remnant above the restored page.
 
-The score performs additional page restoration after its authored Help-exit
-frame.  Arm cleanup there, then wait until the returned page has no pending
-channel redraws before clearing only the exposed top and right strips.  Do
-not force a stage redraw: the title deliberately keeps the underlying page
-and its trail-drawn interface in place during Help.
+Diagnostics show that the returned page's persistent surface is already
+correct after Help exits, while the displayed presentation buffer retains
+the old plan pixels.  Arm at the authored exit frame, wait until the returned
+page has no pending channel redraws, then request one window-manager refresh
+from that intact backing surface.  Do not force a stage redraw: the title
+deliberately keeps its trail-drawn interface in the backing surface.
 ---
- engines/director/window.cpp | 17 +++++++++++++++++
+ engines/director/window.cpp | 13 +++++++++++++
  engines/director/window.h   |  1 +
- 2 files changed, 18 insertions(+)
+ 2 files changed, 14 insertions(+)
 
 diff --git a/engines/director/window.cpp b/engines/director/window.cpp
 --- a/engines/director/window.cpp
@@ -27,25 +28,21 @@ diff --git a/engines/director/window.cpp b/engines/director/window.cpp
  	_stageColor = _wm->_colorBlack;
  	_puppetTransition = nullptr;
  	_soundManager = new DirectorSound(this);
-@@ -397,8 +398,24 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+@@ -397,8 +398,20 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
  		chan->_lastTrail = chan->isTrail();
  	}
  
  	Common::List<Common::Rect> &dirtyRects = _window->getDirtyRectList();
  
-+	// Trek Tech's Help page stamps its floor plan at (472,303)-(596,440),
-+	// while the normal page plan occupies (465,347)-(593,479).  Frame 942
-+	// begins the exit, but the score restores more page content afterwards.
-+	// Defer cleanup until the returned page reaches its first settled render.
++	// Trek Tech's Help exit leaves stale pixels in the presentation buffer,
++	// although the persistent window surface is already correct.  Frame 942
++	// begins the exit; wait for the returned page to settle, then refresh the
++	// display from that surface without redrawing its historical trail sprites.
 +	if (isTrekTech && score->getCurrentFrameNum() == 942) {
 +		_trekHelpPlanCleanupPending = true;
 +	} else if (isTrekTech && _trekHelpPlanCleanupPending && dirtyRects.empty()) {
-+		const Common::Rect helpPlanTop(472, 303, 596, 347);
-+		const Common::Rect helpPlanRight(593, 347, 596, 440);
-+		blitTo->fillRect(helpPlanTop, _stageColor);
-+		blitTo->fillRect(helpPlanRight, _stageColor);
-+		addDirtyRect(helpPlanTop);
-+		addDirtyRect(helpPlanRight);
++		_wm->setFullRefresh(true);
++		_window->setContentDirty(true);
 +		_trekHelpPlanCleanupPending = false;
 +	}
 +
