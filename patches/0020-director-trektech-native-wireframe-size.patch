@@ -7,29 +7,34 @@ leave puppet sprite 19 carrying stale stretched dimensions when the valid
 strips.
 
 Trek Tech uses sprite 19 exclusively for 180x155 wireframe movies.  Clear its
-stale stretch state when assigning a digital-video cast so setCast restores
-the movie's native dimensions while retaining the sprite's authored stage
-position.  Other sprites, games, videos, and custom puppet sizing are
-unchanged.
+stale stretch state before assigning a digital-video cast, then restore the
+native dimensions after setCast has loaded the movie and learned its actual
+size.  This retains the sprite's authored stage position.  Other sprites,
+games, videos, and custom puppet sizing are unchanged.
 ---
- engines/director/lingo/lingo-the.cpp | 8 ++++++++
- 1 file changed, 8 insertions(+)
+ engines/director/lingo/lingo-the.cpp | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
 
 diff --git a/engines/director/lingo/lingo-the.cpp b/engines/director/lingo/lingo-the.cpp
 --- a/engines/director/lingo/lingo-the.cpp
 +++ b/engines/director/lingo/lingo-the.cpp
-@@ -1926,6 +1926,14 @@ void Lingo::setTheSprite(Datum &id1, int field, Datum &d) {
+@@ -1926,6 +1926,19 @@ void Lingo::setTheSprite(Datum &id1, int field, Datum &d) {
  			// Since Digital Video dimensions get clarified after loading,
  			// we enforce them here
  			if (castId != sprite->_castId || (castMember && castMember->_type == kCastDigitalVideo)) {
 +				// Trek Tech always authors its wireframe movies at their native
 +				// 180x155 size.  The exterior has no 03WbegQ.mov, so sprite 19 can
 +				// otherwise carry stale stretched dimensions into 08WendQ.mov and
-+				// render the destination wireframe as vertical strips.  Reset only
-+				// this dedicated wireframe sprite; setCast keeps its stage position.
-+				if (id == 19 && castMember && castMember->_type == kCastDigitalVideo &&
-+						Common::String(g_director->getGameId()).equals("trektech"))
++				// render the destination wireframe as vertical strips.  The movie's
++				// true dimensions are not available until setCast loads it, so reset
++				// this dedicated sprite both before and after assignment.
++				bool resetTrekTechWireframeSize = id == 19 && castMember &&
++						castMember->_type == kCastDigitalVideo &&
++						Common::String(g_director->getGameId()).equals("trektech");
++				if (resetTrekTechWireframeSize)
 +					sprite->_stretch = false;
  				channel->setCast(castId);
++				if (resetTrekTechWireframeSize)
++					channel->setStretch(false);
  			}
  		}
