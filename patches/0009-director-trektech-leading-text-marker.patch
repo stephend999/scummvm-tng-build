@@ -4,17 +4,17 @@ Subject: [PATCH] DIRECTOR: Normalize Trek Tech article formatting markers
 Trek Tech text files contain legacy formatting bytes which the Windows Trek
 font renders as visible punctuation under ScummVM. Normalize them at read
 time while preserving the original disc data: hide leading 0xA5 markers,
-turn paragraph-leading tabs into spaces, translate Mac apostrophes, and hide
+translate Mac Roman spacing and punctuation into display-safe ASCII, and hide
 the end-of-article marker only when it is the final non-whitespace byte.
 ---
- engines/director/lingo/xlibs/f/fileio.cpp | 32 ++++++++++++++++++++++++++++++++
- 1 file changed, 32 insertions(+)
+ engines/director/lingo/xlibs/f/fileio.cpp | 45 +++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
 
 diff --git a/engines/director/lingo/xlibs/f/fileio.cpp b/engines/director/lingo/xlibs/f/fileio.cpp
 index 76a2cccf..c7bbb7cf 100644
 --- a/engines/director/lingo/xlibs/f/fileio.cpp
 +++ b/engines/director/lingo/xlibs/f/fileio.cpp
-@@ -555,6 +555,38 @@ void FileIO::m_readFile(int nargs) {
+@@ -555,6 +555,51 @@ void FileIO::m_readFile(int nargs) {
  		ch = me->_inStream->readByte();
  	}
  
@@ -31,10 +31,23 @@ index 76a2cccf..c7bbb7cf 100644
 +				continue;
 +			}
 +
-+			if (currentByte == '\t' && lineStart)
++			if ((currentByte == '\t' && lineStart) || currentByte == 0xCA)
 +				res.setChar(' ', i);
-+			else if (currentByte == 0xD5)
++			else if (currentByte == 0xC9) {
++				// Preserve the meaning of the Mac Roman ellipsis with three
++				// characters that the bundled Windows font can display.
++				res.setChar('.', i);
++				res.insertChar('.', i + 1);
++				res.insertChar('.', i + 2);
++				i += 3;
++				continue;
++			} else if (currentByte == 0xD0 || currentByte == 0xD1) {
++				res.setChar('-', i);
++			} else if (currentByte == 0xD2 || currentByte == 0xD3) {
++				res.setChar('"', i);
++			} else if (currentByte == 0xD4 || currentByte == 0xD5) {
 +				res.setChar('\'', i);
++			}
 +			++i;
 +		}
 +
