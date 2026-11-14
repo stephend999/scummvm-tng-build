@@ -1,0 +1,50 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: clear deactivated Trek Tech panorama frame
+
+Trek Tech's QTVR panorama draws directly into the Director window surface.
+Deactivating the panorama stops further input and decoding, but leaves its
+last frame on that surface.  After a detail has been enlarged, reduced, and
+closed, reopening the detail can therefore leave the restored panorama above
+the newly prepared paused QuickTime detail frame.
+
+When Trek Tech deactivates an active panorama, clear only the panorama's own
+movie rectangle and mark the window dirty.  The title immediately paints the
+next detail, transit, or restored panorama into that rectangle.  QTVR objects,
+other games, activation, hotspot dispatch, and the rest of the stage are
+unchanged.
+---
+ engines/director/lingo/xlibs/q/qtvr.cpp | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/lingo/xlibs/q/qtvr.cpp b/engines/director/lingo/xlibs/q/qtvr.cpp
+--- a/engines/director/lingo/xlibs/q/qtvr.cpp
++++ b/engines/director/lingo/xlibs/q/qtvr.cpp
+@@ -360,8 +360,25 @@ void QTVR::m_setActive(int nargs) {
+ 	ARGNUMCHECK(1);
+ 
+ 	QTVRXObject *me = (QTVRXObject *)g_lingo->_state->me.u.obj;
+ 
+-	me->_active = (g_lingo->pop().asInt() != 0);
++	bool active = g_lingo->pop().asInt() != 0;
++
++	// QTVR panoramas draw directly into the Director window surface. Trek
++	// Tech deactivates its panorama before replacing it with a paused detail
++	// movie, but the panorama's final pixels otherwise remain above that movie
++	// after an enlarge/reduce and return cycle. Clear only the outgoing movie
++	// rectangle; the title immediately repaints that area with its next view.
++	if (me->_active && !active && me->_video &&
++			me->_video->getQTVRType() == Common::QuickTimeParser::QTVRType::PANORAMA &&
++			Common::String(g_director->getGameId()).equals("trektech")) {
++		Window *window = g_director->getCurrentWindow();
++		if (window && window->getSurface()) {
++			window->getSurface()->fillRect(me->_rect, 0);
++			window->setDirty(true);
++		}
++	}
++
++	me->_active = active;
+ }
+ 
+ void QTVR::m_setHPanAngle(int nargs) {
+-- 
+2.51.0
