@@ -1,32 +1,52 @@
 From: TNG Technical Manual compatibility investigation
-Subject: [PATCH] DIRECTOR: Hide Trek Tech article formatting markers
+Subject: [PATCH] DIRECTOR: Normalize Trek Tech article formatting markers
 
-Some Trek Tech article paragraphs begin with a legacy 0xA5 formatting marker.
-The Windows Trek font renders that marker as a stray percent sign. Strip it
-at read time only at the beginning of a file or line, preserving the original
-disc data and any occurrence within actual text.
+Trek Tech text files contain legacy formatting bytes which the Windows Trek
+font renders as visible punctuation under ScummVM. Normalize them at read
+time while preserving the original disc data: hide leading 0xA5 markers,
+turn paragraph-leading tabs into spaces, translate Mac apostrophes, and hide
+the end-of-article marker only when it is the final non-whitespace byte.
 ---
- engines/director/lingo/xlibs/f/fileio.cpp | 13 +++++++++++++
- 1 file changed, 13 insertions(+)
+ engines/director/lingo/xlibs/f/fileio.cpp | 32 ++++++++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
 
 diff --git a/engines/director/lingo/xlibs/f/fileio.cpp b/engines/director/lingo/xlibs/f/fileio.cpp
 index 76a2cccf..c7bbb7cf 100644
 --- a/engines/director/lingo/xlibs/f/fileio.cpp
 +++ b/engines/director/lingo/xlibs/f/fileio.cpp
-@@ -555,6 +555,19 @@ void FileIO::m_readFile(int nargs) {
+@@ -555,6 +555,38 @@ void FileIO::m_readFile(int nargs) {
  		ch = me->_inStream->readByte();
  	}
  
-+	// Trek Tech article paragraphs can begin with a legacy 0xA5 formatting
-+	// marker. The bundled Windows font renders it as a stray percent sign.
-+	// Strip only markers at the beginning of the file or immediately after a
-+	// carriage return, leaving the original disc data and real text untouched.
++	// Trek Tech article text contains legacy formatting bytes that the bundled
++	// Windows font renders as visible punctuation. Normalize them only while
++	// reading this title, leaving the original disc data untouched.
 +	if (Common::String(g_director->getGameId()).equals("trektech")) {
 +		for (uint i = 0; i < res.size();) {
-+			if ((byte)res[i] == 0xA5 && (i == 0 || res[i - 1] == '\r'))
++			const bool lineStart = i == 0 || res[i - 1] == '\r' || res[i - 1] == '\n';
++			const byte currentByte = (byte)res[i];
++
++			if (currentByte == 0xA5 && lineStart) {
 +				res.deleteChar(i);
-+			else
-+				++i;
++				continue;
++			}
++
++			if (currentByte == '\t' && lineStart)
++				res.setChar(' ', i);
++			else if (currentByte == 0xD5)
++				res.setChar('\'', i);
++			++i;
++		}
++
++		// 0xC6 is the end-of-article marker. Remove it only when all following
++		// bytes are whitespace so a future legitimate in-text byte is preserved.
++		for (int i = (int)res.size() - 1; i >= 0; --i) {
++			const byte currentByte = (byte)res[i];
++			if (currentByte == ' ' || currentByte == '\t' || currentByte == '\r' || currentByte == '\n')
++				continue;
++			if (currentByte == 0xC6)
++				res.deleteChar(i);
++			break;
 +		}
 +	}
 +
