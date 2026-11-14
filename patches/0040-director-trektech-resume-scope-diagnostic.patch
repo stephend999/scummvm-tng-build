@@ -1,0 +1,41 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: Trace Trek Tech resume-page variable scopes
+
+The attempted resume fix proved that the movie-global gPLData exists, but a
+Ready Room quit still stores the stale ship-exterior page. Before making any
+further behavioral change, record both Director's normal variable resolution
+and explicit global resolution at the exact shutdown getAt(gPLData, 1) call.
+
+Also dump the variables visible in that handler so the authoritative current
+page can be identified from one controlled quit test. This patch is diagnostic
+only: the GLOBALREF behavior introduced by the preceding compatibility patch
+is left unchanged.
+---
+ engines/director/lingo/lingo-bytecode.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/engines/director/lingo/lingo-bytecode.cpp b/engines/director/lingo/lingo-bytecode.cpp
+index 05d83d22..132b25ad 100644
+--- a/engines/director/lingo/lingo-bytecode.cpp
++++ b/engines/director/lingo/lingo-bytecode.cpp
+@@ -457,6 +457,18 @@ void LC::cb_objectcall() {
+ 				g_lingo->_state->context && g_lingo->_state->context->_id == 193 &&
+ 				var.u.s->equalsIgnoreCase("getAt") &&
+ 				firstArg.u.s->equalsIgnoreCase("gPLData")) {
++			Datum normalRef = firstArg;
++			normalRef.type = VARREF;
++			Datum globalRef = firstArg;
++			globalRef.type = GLOBALREF;
++			Datum normalValue = g_lingo->varFetch(normalRef, true);
++			Datum globalValue = g_lingo->varFetch(globalRef, true);
++			warning("TNG RESUME DIAGNOSTIC: normal gPLData [%s] %s",
++					normalValue.type2str(), normalValue.asString(true).c_str());
++			warning("TNG RESUME DIAGNOSTIC: global gPLData [%s] %s",
++					globalValue.type2str(), globalValue.asString(true).c_str());
++			warning("TNG RESUME DIAGNOSTIC VARIABLES:\n%s",
++					g_lingo->formatAllVars().c_str());
+ 			// Score script 193 omits its global declaration, but Director 4
+ 			// resolves this legacy reference to the movie's playlist global.
+ 			firstArg.type = GLOBALREF;
+-- 
+2.51.0
