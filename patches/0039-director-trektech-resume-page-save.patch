@@ -1,0 +1,39 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: Resolve Trek Tech resume page as a global
+
+The Trek Tech shutdown score script reads gPLData through Director 4's
+legacy object-call bytecode without declaring the variable global. The
+original runtime resolves this reference to the movie global, but the generic
+ScummVM lookup can bind it to the score-script scope and produce VOID. That
+causes the preferences writer to store an empty resume page.
+
+Limit the compatibility adjustment to Trek Tech score script 193 and its
+getAt(gPLData, ...) call. Explicitly resolve that receiver as the existing
+global so the current page code is written before the shutdown transition.
+---
+ engines/director/lingo/lingo-bytecode.cpp | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/engines/director/lingo/lingo-bytecode.cpp b/engines/director/lingo/lingo-bytecode.cpp
+index 857b5ad4..05d83d22 100644
+--- a/engines/director/lingo/lingo-bytecode.cpp
++++ b/engines/director/lingo/lingo-bytecode.cpp
+@@ -451,7 +451,15 @@ void LC::cb_objectcall() {
+ 	if (nargs.u.i > 0) {
+ 		Datum &firstArg = g_lingo->_state->stack[g_lingo->_state->stack.size() - nargs.u.i];
+ 		// The first arg could be either a method name or a variable name
+-		if (firstArg.type == SYMBOL) {
++		if (firstArg.type == SYMBOL &&
++				Common::String(g_director->getGameId()).equals("trektech") &&
++				g_lingo->_state->context && g_lingo->_state->context->_id == 193 &&
++				var.u.s->equalsIgnoreCase("getAt") &&
++				firstArg.u.s->equalsIgnoreCase("gPLData")) {
++			// Score script 193 omits its global declaration, but Director 4
++			// resolves this legacy reference to the movie's playlist global.
++			firstArg.type = GLOBALREF;
++		} else if (firstArg.type == SYMBOL) {
+ 			firstArg.type = VARREF;
+ 		}
+ 	}
+-- 
+2.51.0
