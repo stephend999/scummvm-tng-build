@@ -1,0 +1,40 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: Preserve Trek Tech's valid resume page
+
+Trek Tech saves the current page from score script 193 during its quit
+transition. Six seconds later, MovieScript 1280's stopMovie handler calls
+storeprefs again after gPLData has been cleared, overwriting the valid page
+with an empty string.
+
+Ignore only that late, empty storeprefs call. Keep all non-empty saves and all
+other games and script contexts unchanged.
+---
+ engines/director/lingo/lingo-bytecode.cpp | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/engines/director/lingo/lingo-bytecode.cpp b/engines/director/lingo/lingo-bytecode.cpp
+index 05d83d22..7eb4761e 100644
+--- a/engines/director/lingo/lingo-bytecode.cpp
++++ b/engines/director/lingo/lingo-bytecode.cpp
+@@ -559,6 +559,19 @@ void LC::cb_call() {
+ 	Common::String name = g_lingo->readString();
+ 
+ 	Datum nargs = g_lingo->pop();
++	if (Common::String(g_director->getGameId()).equals("trektech") &&
++			g_lingo->_state->context && g_lingo->_state->context->_id == 1280 &&
++			name.equalsIgnoreCase("storeprefs") &&
++			nargs.type == ARGCNORET && nargs.u.i == 3 &&
++			g_lingo->_state->stack.size() >= 3) {
++		const Datum &page = g_lingo->_state->stack[g_lingo->_state->stack.size() - 3];
++		if (page.type == STRING && page.u.s->empty()) {
++			g_lingo->pop();
++			g_lingo->pop();
++			g_lingo->pop();
++			return;
++		}
++	}
+ 	if ((nargs.type == ARGC) || (nargs.type == ARGCNORET)) {
+ 		LC::call(name, nargs.u.i, nargs.type == ARGC);
+ 
+-- 
+2.51.0

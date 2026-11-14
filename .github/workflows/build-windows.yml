@@ -77,7 +77,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0037-director-trektech-help-restore-diagnostic.patch'
           Apply-RepositoryPatch 'patches/0038-director-trektech-help-handler-diagnostic.patch'
           Apply-RepositoryPatch 'patches/0039-director-trektech-resume-page-save.patch'
-          Apply-RepositoryPatch 'patches/0040-director-trektech-resume-scope-diagnostic.patch'
+          Apply-RepositoryPatch 'patches/0041-director-trektech-preserve-resume-page.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'
