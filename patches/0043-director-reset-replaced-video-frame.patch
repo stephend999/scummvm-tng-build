@@ -1,0 +1,38 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: discard cached frame when replacing video
+
+DigitalVideoCastMember::loadVideo() replaces the decoder when its source path
+changes, but previously retained the converted frame cached from the outgoing
+movie.  Trek Tech reuses one cast member for detail and transit movies.  If the
+new decoder has not produced its first frame before the next render, that stale
+surface can be copied using the replacement movie's dimensions, yielding
+stretched scanlines or a frozen first frame depending on timing.
+
+Discard the cached frame and force one redraw whenever the source changes.
+This does not alter playback timing, decoding, palettes, or normal rendering.
+---
+ engines/director/castmember/digitalvideo.cpp | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/castmember/digitalvideo.cpp
+--- a/engines/director/castmember/digitalvideo.cpp
++++ b/engines/director/castmember/digitalvideo.cpp
+@@ -264,6 +264,16 @@ bool DigitalVideoCastMember::loadVideo(Common::String path) {
+ 		return _video ? true : false;
+ 	}
+ 
++	// A converted frame belongs to the decoder that produced it. Keeping it
++	// across a source change can make createWidget() read the old surface using
++	// the new movie's dimensions before the replacement's first frame arrives.
++	if (_lastFrame) {
++		_lastFrame->free();
++		delete _lastFrame;
++		_lastFrame = nullptr;
++	}
++	_dirty = true;
++
+ 	if (_video) {
+ 		delete _video;
+ 		_video = nullptr;
+-- 
+2.51.0
