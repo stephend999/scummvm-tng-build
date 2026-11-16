@@ -80,6 +80,7 @@ jobs:
           Apply-RepositoryPatch 'patches/0041-director-trektech-preserve-resume-page.patch'
           Apply-RepositoryPatch 'patches/0042-director-trektech-clear-deactivated-panorama.patch'
           Apply-RepositoryPatch 'patches/0043-director-reset-replaced-video-frame.patch'
+          Apply-RepositoryPatch 'patches/0044-director-qtvr-rollover-diagnostic.patch'
           git -C source diff --check
           if ($LASTEXITCODE -ne 0) {
             throw 'Patched source failed git diff --check'
