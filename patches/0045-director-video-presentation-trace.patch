@@ -5,18 +5,23 @@ Add opt-in pixel fingerprints after transit frame decoding, after Director
 compositing, and after window-manager presentation. BlankQT is excluded so
 the diagnostic remains small and minimally affects playback timing.
 ---
- engines/director/castmember/digitalvideo.cpp | 22 ++++++++++++
+ engines/director/castmember/digitalvideo.cpp | 38 +++++++++++++++++----
  engines/director/graphics.cpp                | 49 +++++++++++++++++++++++++++
  engines/director/window.cpp                  | 29 ++++++++++++++++
- 3 files changed, 100 insertions(+)
+ 3 files changed, 110 insertions(+), 6 deletions(-)
 
 diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/castmember/digitalvideo.cpp
 --- a/engines/director/castmember/digitalvideo.cpp
 +++ b/engines/director/castmember/digitalvideo.cpp
-@@ -47,6 +47,20 @@
+@@ -47,6 +47,25 @@
  
  namespace Director {
  
++static bool shouldTraceTrekVideo(const Common::String &filename) {
++	return ConfMan.getBool("tng_video_lifecycle_trace") &&
++			!filename.hasSuffixIgnoreCase("BlankQT.mov");
++}
++
 +static uint32 hashTrekVideoSurface(const Graphics::Surface *surface) {
 +	if (!surface || !surface->getPixels() || surface->w <= 0 || surface->h <= 0)
 +		return 0;
@@ -34,12 +39,47 @@ diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/cas
  
  class NoVideoAIFFDecoder : public Video::VideoDecoder {
  
-@@ -601,6 +615,14 @@ Graphics::MacWidget *DigitalVideoCastMember::createWidget(Common::Rect &bbox, Ch
+@@ -399,7 +418,7 @@ bool DigitalVideoCastMember::isModified() {
+ 	if (!_video || !_video->isVideoLoaded())
+ 		return true;
+ 
+-	const bool traceLifecycle = ConfMan.getBool("tng_video_lifecycle_trace");
++	const bool traceLifecycle = shouldTraceTrekVideo(_filename);
+ 	static uint32 lastTraceMillis = 0;
+ 
+ 	if (_dirty) {
+@@ -516,7 +535,7 @@ bool DigitalVideoCastMember::endOfVideo() {
+ 	const uint currentForStop = getMovieCurrentTimeMillis();
+ 	const uint stopMillis = _channel->_stopTime > 0 ? (uint)(_channel->_stopTime * 1000 / scale) : 0;
+ 	const bool stopTimeEnded = stopMillis > 0 && currentForStop >= stopMillis;
+-	if ((decoderEnded || stopTimeEnded) && ConfMan.getBool("tng_video_lifecycle_trace")) {
++	if ((decoderEnded || stopTimeEnded) && shouldTraceTrekVideo(_filename)) {
+ 		warning("TNG_VIDEO_END file=%s decoderEnded=%d stopTimeEnded=%d rawMs=%u comparedMs=%u stopMs=%u startTicks=%u stopTicks=%u scale=%u rate=%g playing=%d",
+ 				_filename.c_str(), decoderEnded, stopTimeEnded, currentMillis, currentForStop, stopMillis,
+ 				_channel->_startTime, _channel->_stopTime, scale, _channel->_movieRate, _video->isPlaying());
+@@ -540,7 +559,7 @@ Graphics::MacWidget *DigitalVideoCastMember::createWidget(Common::Rect &bbox, Ch
+ 	if (bbox.width() <= 0 || bbox.height() <= 0) {
+ 		if (_channel && _channel->_movieRate != 0.0 && _video->needsUpdate()) {
+ 			_video->decodeNextFrame();
+-			if (ConfMan.getBool("tng_video_lifecycle_trace")) {
++			if (shouldTraceTrekVideo(_filename)) {
+ 				warning("TNG_VIDEO_FRAME file=%s target=zero nowMs=%u curFrame=%d rate=%g playing=%d",
+ 						_filename.c_str(), _video->getTime(), _video->getCurFrame(),
+ 						_channel->_movieRate, _video->isPlaying());
+@@ -561,7 +580,7 @@ Graphics::MacWidget *DigitalVideoCastMember::createWidget(Common::Rect &bbox, Ch
+ 	}
+ 
+ 	const Graphics::Surface *frame = _video->decodeNextFrame();
+-	if (ConfMan.getBool("tng_video_lifecycle_trace")) {
++	if (shouldTraceTrekVideo(_filename)) {
+ 		warning("TNG_VIDEO_FRAME file=%s target=widget nowMs=%u curFrame=%d frame=%d rate=%g playing=%d bbox=%dx%d movie=%dx%d",
+ 				_filename.c_str(), _video->getTime(), _video->getCurFrame(), frame != nullptr,
+ 				_channel->_movieRate, _video->isPlaying(), bbox.width(), bbox.height(),
+@@ -601,6 +620,13 @@ Graphics::MacWidget *DigitalVideoCastMember::createWidget(Common::Rect &bbox, Ch
  			bbox
  		);
  
-+	if (ConfMan.getBool("tng_video_lifecycle_trace") &&
-+			!_filename.hasSuffixIgnoreCase("BlankQT.mov")) {
++	if (shouldTraceTrekVideo(_filename)) {
 +		warning("TNG_VIDEO_PIPE stage=decode file=%s nowMs=%u curFrame=%d sourceHash=%08x cachedHash=%08x widgetHash=%08x",
 +				_filename.c_str(), _video->getTime(), _video->getCurFrame(),
 +				hashTrekVideoSurface(frame), hashTrekVideoSurface(_lastFrame),
@@ -49,6 +89,24 @@ diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/cas
  	if (_getFirstFrame) {
  		_video->stop();
  		_getFirstFrame = false;
+@@ -715,7 +741,7 @@ void DigitalVideoCastMember::setMovieTime(int units) {
+ 
+ 	Audio::Timestamp dur = _video->getDuration();
+ 	const bool seeked = _video->seek(Audio::Timestamp(units * 1000 / getTimeScale(), dur.framerate()));
+-	if (ConfMan.getBool("tng_video_lifecycle_trace")) {
++	if (shouldTraceTrekVideo(_filename)) {
+ 		warning("TNG_VIDEO_SEEK file=%s units=%d scale=%u seeked=%d nowMs=%u rate=%g playing=%d ended=%d",
+ 				_filename.c_str(), units, getTimeScale(), seeked, _video->getTime(),
+ 				_channel->_movieRate, _video->isPlaying(), _video->endOfVideo());
+@@ -759,7 +785,7 @@ void DigitalVideoCastMember::setMovieRate(double rate) {
+ 	}
+ 
+ 	_channel->_movieRate = rate;
+-	if (ConfMan.getBool("tng_video_lifecycle_trace")) {
++	if (shouldTraceTrekVideo(_filename)) {
+ 		warning("TNG_VIDEO_RATE file=%s requested=%g nowMs=%u startTicks=%u stopTicks=%u scale=%u playing=%d decoderEnded=%d",
+ 				_filename.c_str(), rate, _video->getTime(), _channel->_startTime,
+ 				_channel->_stopTime, getTimeScale(), _video->isPlaying(), _video->endOfVideo());
 diff --git a/engines/director/graphics.cpp b/engines/director/graphics.cpp
 --- a/engines/director/graphics.cpp
 +++ b/engines/director/graphics.cpp
