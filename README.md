@@ -6,6 +6,12 @@ This repository contains compatibility patches and build automation for running 
 It does not contain the original game data. A lawfully owned original CD-ROM or ISO
 is required.
 
+## Releases
+
+The current Windows installer and release notes are available on the
+[GitHub Releases page](https://github.com/stephend999/scummvm-tng-build/releases/latest).
+Version history is recorded in [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 The original code, compatibility patches, and build scripts in this repository are
