@@ -1,0 +1,106 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace digital-video frame scheduling
+
+Add opt-in lifecycle diagnostics around Director digital-video polling and
+frame decoding. The trace records whether playback time advances, whether a
+new frame is due, whether Director decodes it, and the target dimensions.
+Playback behaviour is unchanged unless logging is enabled, and logging itself
+does not alter timing or render state.
+---
+ engines/director/castmember/digitalvideo.cpp | 55 ++++++++++++++++++++--
+ 1 file changed, 51 insertions(+), 4 deletions(-)
+
+diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/castmember/digitalvideo.cpp
+--- a/engines/director/castmember/digitalvideo.cpp
++++ b/engines/director/castmember/digitalvideo.cpp
+@@ -24,6 +24,7 @@
+ #include "common/platform.h"
+ #include "common/stream.h"
+ #include "common/macresman.h"
++#include "common/system.h"
+ 
+ #include "graphics/paletteman.h"
+ #include "graphics/surface.h"
+@@ -398,7 +399,15 @@ bool DigitalVideoCastMember::isModified() {
+ 	if (!_video || !_video->isVideoLoaded())
+ 		return true;
+ 
++	const bool traceLifecycle = ConfMan.getBool("tng_video_lifecycle_trace");
++	static uint32 lastTraceMillis = 0;
++
+ 	if (_dirty) {
++		if (traceLifecycle) {
++			warning("TNG_VIDEO_POLL file=%s reason=dirty nowMs=%u curFrame=%d rate=%g playing=%d first=%d",
++					_filename.c_str(), _video->getTime(), _video->getCurFrame(),
++					_channel ? _channel->_movieRate : 0.0, _video->isPlaying(), _getFirstFrame);
++		}
+ 		_dirty = false;
+ 		return true;
+ 	}
+@@ -414,13 +423,32 @@ bool DigitalVideoCastMember::isModified() {
+ 		}
+ 	}
+ 
+-	if (_getFirstFrame)
++	if (_getFirstFrame) {
++		if (traceLifecycle) {
++			warning("TNG_VIDEO_POLL file=%s reason=first nowMs=%u curFrame=%d rate=%g playing=%d",
++					_filename.c_str(), _video->getTime(), _video->getCurFrame(),
++					_channel ? _channel->_movieRate : 0.0, _video->isPlaying());
++		}
+ 		return true;
++	}
+ 
+-	if (_channel && _channel->_movieRate == 0.0)
++	if (_channel && _channel->_movieRate == 0.0) {
++		if (traceLifecycle && g_system->getMillis() - lastTraceMillis >= 250) {
++			lastTraceMillis = g_system->getMillis();
++			warning("TNG_VIDEO_POLL file=%s reason=stopped nowMs=%u curFrame=%d playing=%d",
++					_filename.c_str(), _video->getTime(), _video->getCurFrame(), _video->isPlaying());
++		}
+ 		return false;
++	}
+ 
+-	return _video->needsUpdate();
++	const bool needsUpdate = _video->needsUpdate();
++	if (traceLifecycle && (needsUpdate || g_system->getMillis() - lastTraceMillis >= 250)) {
++		lastTraceMillis = g_system->getMillis();
++		warning("TNG_VIDEO_POLL file=%s reason=playing nowMs=%u nextMs=%u curFrame=%d needs=%d rate=%g playing=%d ended=%d",
++				_filename.c_str(), _video->getTime(), _video->getTimeToNextFrame(), _video->getCurFrame(),
++				needsUpdate, _channel ? _channel->_movieRate : 0.0, _video->isPlaying(), _video->endOfVideo());
++	}
++	return needsUpdate;
+ }
+ 
+ void DigitalVideoCastMember::startVideo() {
+@@ -510,8 +538,14 @@ Graphics::MacWidget *DigitalVideoCastMember::createWidget(Common::Rect &bbox, Ch
+ 	// Zero-sized bbox: nothing to render. Still pump the decoder so an
+ 	// invisible video used only as a timing/audio clock keeps advancing.
+ 	if (bbox.width() <= 0 || bbox.height() <= 0) {
+-		if (_channel && _channel->_movieRate != 0.0 && _video->needsUpdate())
++		if (_channel && _channel->_movieRate != 0.0 && _video->needsUpdate()) {
+ 			_video->decodeNextFrame();
++			if (ConfMan.getBool("tng_video_lifecycle_trace")) {
++				warning("TNG_VIDEO_FRAME file=%s target=zero nowMs=%u curFrame=%d rate=%g playing=%d",
++						_filename.c_str(), _video->getTime(), _video->getCurFrame(),
++						_channel->_movieRate, _video->isPlaying());
++			}
++		}
+ 		return nullptr;
+ 	}
+ 
+@@ -527,6 +561,12 @@ Graphics::MacWidget *DigitalVideoCastMember::createWidget(Common::Rect &bbox, Ch
+ 	}
+ 
+ 	const Graphics::Surface *frame = _video->decodeNextFrame();
++	if (ConfMan.getBool("tng_video_lifecycle_trace")) {
++		warning("TNG_VIDEO_FRAME file=%s target=widget nowMs=%u curFrame=%d frame=%d rate=%g playing=%d bbox=%dx%d movie=%dx%d",
++				_filename.c_str(), _video->getTime(), _video->getCurFrame(), frame != nullptr,
++				_channel->_movieRate, _video->isPlaying(), bbox.width(), bbox.height(),
++				_video->getWidth(), _video->getHeight());
++	}
+ 
+ 	// If the video gets stopped, for whatever reason, _video->getPalette() will not work.
+ 	// Cache it when possible.
+-- 
+2.51.0
