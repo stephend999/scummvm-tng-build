@@ -43,7 +43,7 @@ diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/cas
 +		warning("TNG_VIDEO_PIPE stage=decode file=%s nowMs=%u curFrame=%d sourceHash=%08x cachedHash=%08x widgetHash=%08x",
 +				_filename.c_str(), _video->getTime(), _video->getCurFrame(),
 +				hashTrekVideoSurface(frame), hashTrekVideoSurface(_lastFrame),
-+				hashTrekVideoSurface(widget->getSurface()));
++				hashTrekVideoSurface(widget->getSurface()->surfacePtr()));
 +	}
 +
  	if (_getFirstFrame) {
