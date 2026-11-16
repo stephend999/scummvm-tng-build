@@ -1,0 +1,36 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: Accept TrekTech factory put sentinel argument
+
+The credits hotspot table is populated through a Director 3 factory object.
+Its crew-name entries call mPut with key, value, and a trailing zero sentinel,
+while the normal location entries use only key and value.  Director accepts
+the unused trailing argument, but ScummVM currently treats it as the value and
+the caption text as the key, leaving every credits name absent from the table.
+
+For TrekTech only, discard the single surplus trailing argument to the factory
+put method and retain the existing strict argument checks everywhere else.
+---
+ engines/director/lingo/lingo-code.cpp | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/engines/director/lingo/lingo-code.cpp b/engines/director/lingo/lingo-code.cpp
+--- a/engines/director/lingo/lingo-code.cpp
++++ b/engines/director/lingo/lingo-code.cpp
+@@ -1799,6 +1799,15 @@ void LC::call(const Symbol &funcSym, int nargs, bool allowRetVal) {
+ 					g_lingo->push(d);
+ 					nargs++;
+ 				}
++			} else if (Common::String(g_director->getGameId()).equals("trektech") &&
++					funcSym.type == HBLTIN && target.type == OBJECT &&
++					(target.u.obj->getObjType() & kFactoryObj) && funcSym.name &&
++					funcSym.name->equalsIgnoreCase("put") &&
++					nargs == funcSym.maxArgs + 1) {
++				// TrekTech's credits table supplies an unused trailing zero to mPut.
++				// Director ignores it; remove it before LM::m_put pops value and key.
++				g_lingo->pop();
++				nargs--;
+ 			}
+ 		} else if (funcSym.nargs > nargs || funcSym.maxArgs < nargs) {
+ 			warning("Incorrect number of arguments for builtin '%s' (%d, expected %d to %d). Dropping %d stack items.",
+-- 
+2.51.0.windows.1
