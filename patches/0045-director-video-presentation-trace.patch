@@ -1,0 +1,187 @@
+From: TNG Technical Manual compatibility investigation
+Subject: [PATCH] DIRECTOR: trace transit video presentation stages
+
+Add opt-in pixel fingerprints after transit frame decoding, after Director
+compositing, and after window-manager presentation. BlankQT is excluded so
+the diagnostic remains small and minimally affects playback timing.
+---
+ engines/director/castmember/digitalvideo.cpp | 22 ++++++++++++
+ engines/director/graphics.cpp                | 49 +++++++++++++++++++++++++++
+ engines/director/window.cpp                  | 29 ++++++++++++++++
+ 3 files changed, 100 insertions(+)
+
+diff --git a/engines/director/castmember/digitalvideo.cpp b/engines/director/castmember/digitalvideo.cpp
+--- a/engines/director/castmember/digitalvideo.cpp
++++ b/engines/director/castmember/digitalvideo.cpp
+@@ -47,6 +47,20 @@
+ 
+ namespace Director {
+ 
++static uint32 hashTrekVideoSurface(const Graphics::Surface *surface) {
++	if (!surface || !surface->getPixels() || surface->w <= 0 || surface->h <= 0)
++		return 0;
++
++	uint32 hash = 2166136261U;
++	const int rowBytes = surface->w * surface->format.bytesPerPixel;
++	for (int y = 0; y < surface->h; ++y) {
++		const byte *row = (const byte *)surface->getBasePtr(0, y);
++		for (int x = 0; x < rowBytes; ++x)
++			hash = (hash ^ row[x]) * 16777619U;
++	}
++	return hash;
++}
++
+ 
+ class NoVideoAIFFDecoder : public Video::VideoDecoder {
+ 
+@@ -601,6 +615,14 @@ Graphics::MacWidget *DigitalVideoCastMember::createWidget(Common::Rect &bbox, Ch
+ 			bbox
+ 		);
+ 
++	if (ConfMan.getBool("tng_video_lifecycle_trace") &&
++			!_filename.hasSuffixIgnoreCase("BlankQT.mov")) {
++		warning("TNG_VIDEO_PIPE stage=decode file=%s nowMs=%u curFrame=%d sourceHash=%08x cachedHash=%08x widgetHash=%08x",
++				_filename.c_str(), _video->getTime(), _video->getCurFrame(),
++				hashTrekVideoSurface(frame), hashTrekVideoSurface(_lastFrame),
++				hashTrekVideoSurface(widget->getSurface()));
++	}
++
+ 	if (_getFirstFrame) {
+ 		_video->stop();
+ 		_getFirstFrame = false;
+diff --git a/engines/director/graphics.cpp b/engines/director/graphics.cpp
+--- a/engines/director/graphics.cpp
++++ b/engines/director/graphics.cpp
+@@ -20,6 +20,7 @@
+  */
+ 
+ #include "common/system.h"
++#include "common/config-manager.h"
+ #include "common/memstream.h"
+ #include "graphics/macgamma.h"
+ #include "graphics/paletteman.h"
+@@ -27,14 +28,36 @@
+ 
+ #include "director/director.h"
+ #include "director/cast.h"
++#include "director/channel.h"
+ #include "director/movie.h"
++#include "director/score.h"
++#include "director/sprite.h"
+ #include "director/images.h"
+ #include "director/picture.h"
+ #include "director/window.h"
+ #include "director/castmember/bitmap.h"
++#include "director/castmember/digitalvideo.h"
+ 
+ namespace Director {
+ 
++static uint32 hashTrekPresentedRect(Graphics::ManagedSurface *surface, Common::Rect area) {
++	if (!surface || !surface->getPixels())
++		return 0;
++
++	area.clip(surface->getBounds());
++	if (area.isEmpty())
++		return 0;
++
++	uint32 hash = 2166136261U;
++	const int bytesPerPixel = surface->format.bytesPerPixel;
++	for (int y = area.top; y < area.bottom; ++y) {
++		const byte *row = (const byte *)surface->getBasePtr(area.left, y);
++		for (int x = 0; x < area.width() * bytesPerPixel; ++x)
++			hash = (hash ^ row[x]) * 16777619U;
++	}
++	return hash;
++}
++
+ #include "director/graphics-data.h"
+ 
+ /**
+@@ -287,6 +310,32 @@ void DirectorEngine::setCursor(DirectorCursor type) {
+ void DirectorEngine::draw() {
+ 	_wm->renderZoomBox(true);
+ 	_wm->draw();
++
++	if (ConfMan.getBool("tng_video_lifecycle_trace") &&
++			Common::String(getGameId()).equals("trektech") && _stage &&
++			_stage->getCurrentMovie()) {
++		Score *score = _stage->getCurrentMovie()->getScore();
++		Channel *channel = score ? score->getChannelById(23) : nullptr;
++		if (channel && channel->_sprite && channel->_sprite->_cast &&
++				channel->_sprite->_cast->_type == kCastDigitalVideo) {
++			DigitalVideoCastMember *video = (DigitalVideoCastMember *)channel->_sprite->_cast;
++			if (!video->_filename.hasSuffixIgnoreCase("BlankQT.mov") && channel->isActiveVideo()) {
++				static Common::String lastFile;
++				static uint32 lastHash = 0;
++				static uint32 lastReportMs = 0;
++				const uint32 hash = hashTrekPresentedRect(_surface, channel->getBbox());
++				const uint32 nowMs = g_system->getMillis();
++				if (video->_filename != lastFile || hash != lastHash || nowMs - lastReportMs >= 500) {
++					warning("TNG_VIDEO_PIPE stage=present file=%s now=%d presentHash=%08x bbox=%d,%d,%d,%d",
++							video->_filename.c_str(), video->getMovieCurrentTime(), hash,
++							PRINT_RECT(channel->getBbox()));
++					lastFile = video->_filename;
++					lastHash = hash;
++					lastReportMs = nowMs;
++				}
++			}
++		}
++	}
+ 	g_system->updateScreen();
+ }
+ 
+diff --git a/engines/director/window.cpp b/engines/director/window.cpp
+--- a/engines/director/window.cpp
++++ b/engines/director/window.cpp
+@@ -20,6 +20,7 @@
+  */
+ 
+ #include "common/debug.h"
++#include "common/config-manager.h"
+ #include "common/file.h"
+ #include "common/system.h"
+ #include "common/macresman.h"
+@@ -59,6 +60,24 @@ static bool isTrekTechHelpTextChannel(Channel *channel) {
+ 	return castInfo && castInfo->name.equalsIgnoreCase("TheHelpTextWin");
+ }
+ 
++static uint32 hashTrekVideoRect(Graphics::ManagedSurface *surface, Common::Rect area) {
++	if (!surface || !surface->getPixels())
++		return 0;
++
++	area.clip(surface->getBounds());
++	if (area.isEmpty())
++		return 0;
++
++	uint32 hash = 2166136261U;
++	const int bytesPerPixel = surface->format.bytesPerPixel;
++	for (int y = area.top; y < area.bottom; ++y) {
++		const byte *row = (const byte *)surface->getBasePtr(area.left, y);
++		for (int x = 0; x < area.width() * bytesPerPixel; ++x)
++			hash = (hash ^ row[x]) * 16777619U;
++	}
++	return hash;
++}
++
+ static bool g_trekHelpPlanTraceActive = false;
+ static bool g_trekHelpPlanStageHashValid = false;
+ static bool g_trekHelpPlanCompositeHashValid = false;
+@@ -450,6 +469,16 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
+ 		if (!chan->_lastTrail)
+ 			renderPreservingTrekMenu(chan->_lastRenderedBbox);
+ 		renderPreservingTrekMenu(bbox);
++		if (isTrekTech && i == 23 && ConfMan.getBool("tng_video_lifecycle_trace") &&
++				chan->_sprite && chan->_sprite->_cast &&
++				chan->_sprite->_cast->_type == kCastDigitalVideo) {
++			DigitalVideoCastMember *video = (DigitalVideoCastMember *)chan->_sprite->_cast;
++			if (!video->_filename.hasSuffixIgnoreCase("BlankQT.mov")) {
++				warning("TNG_VIDEO_PIPE stage=director file=%s now=%d stageHash=%08x bbox=%d,%d,%d,%d",
++						video->_filename.c_str(), video->getMovieCurrentTime(),
++						hashTrekVideoRect(blitTo, bbox), PRINT_RECT(bbox));
++			}
++		}
+ 		chan->_needsDraw = false;
+ 		chan->_lastRenderedBbox = bbox;
+ 		chan->_lastTrail = chan->isTrail();
+-- 
+2.51.0
